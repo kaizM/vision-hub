@@ -1,0 +1,98 @@
+Awesome—let’s lock the plan and move straight into build mode. Here’s a tight, do-first roadmap that covers **design → build → verify** without getting stuck.
+
+# 1) Decide the product defaults (I’ll assume these unless you say otherwise)
+
+* **Auto-close** personal tab: 2 minutes idle (10-sec warning)
+* **Chime**: every 10s until acknowledged
+* **TTS** (name call): on, repeat 3 times (“<name>, please enter your PIN.”)
+* **Snooze**: off (employees can’t snooze yet)
+* **Inventory**: cigarettes only (name, SKU, count, low-stock threshold)
+* **Cameras**: simulated in cloud; RTSP when we run on the Lenovo
+
+# 2) Design deliverables (quick, concrete)
+
+* **Kiosk screen (always on)**
+  Header, “Current Task”, Alerts feed, Camera panel, “Reopen my tasks” button, plus **overlay card** that pops when someone is called (with TTS + chime + QR to open personal tab).
+* **Personal task tab**
+  PIN → “My Tasks” (Due Now + Next), buttons: **Done**, **Need help**. Shows idle countdown; auto-closes at 2 min.
+* **Admin / Settings**
+  Panels: Employees (name, PIN, role), Tasks (list + rotation minutes), Inventory (items + thresholds), Settings (auto-close, TTS, chime interval), “Call Employee” action.
+* **Reports (MVP)**
+  Daily summary (who was called, what got done/missed), CSV export.
+
+# 3) Build plan (short sprints you can follow today)
+
+**Sprint A — Kiosk + Call flow**
+
+1. Kiosk page (React or plain HTML): show task, alerts, camera (sim).
+2. **Audio/TTS**: use Web Speech API for name call + an `<audio>` chime (embedded mp3).
+3. **“Call Employee”** admin button → emits event with `{employeeId, employeeName, taskTitle}` → kiosk shows overlay, plays chime + TTS.
+4. **Open Task** button + QR link → opens `/me` in a new tab with `employeeId`, then prompts **PIN**.
+5. **Acceptance test**: calling “Elisha” pops overlay + speaks her name; clicking opens her tab and asks for PIN.
+
+**Sprint B — Personal tab + Auto-close**
+
+1. Personal tab flow: PIN → fetch “My Tasks” (Due Now + Next).
+2. Idle timer: reset on any click/keypress; show 10-sec warning; auto-close at 2 min (redirect to kiosk).
+3. “Reopen my tasks” on kiosk → PIN → reopens same view.
+4. **Acceptance test**: open tab, do nothing → it closes; from kiosk, reopen via PIN.
+
+**Sprint C — Task engine + Alerts**
+
+1. Scheduler assigns a task every N minutes to **someone on shift** (round-robin for now).
+2. Emit `task:new` → kiosk alert; if assigned to a named person, also trigger **Call Employee** behavior.
+3. “Done” posts completion; kiosk shows a confirmation alert.
+4. **Acceptance test**: tasks rotate; Done creates an alert and a log entry.
+
+**Sprint D — Inventory (light)**
+
+1. Inventory list (name, SKU, count, min threshold).
+2. Adjust count (+/-) with reason.
+3. Alert when count < threshold.
+4. CSV export of inventory log.
+5. **Acceptance test**: adjusting below threshold triggers kiosk alert.
+
+**Sprint E — Admin + Reports**
+
+1. Employee CRUD (name, PIN, role), Task CRUD (titles, intervals), Settings (auto-close, TTS, chime).
+2. Daily summary (done/missed, average acknowledge time).
+3. **Acceptance test**: change settings and see them take effect immediately.
+
+# 4) Minimal data you’ll store (so the UI can work)
+
+* **Employees**: id, name, pin (hashed), role, active
+* **Tasks**: id, title, interval\_minutes
+* **Assignments**: id, task\_id, assigned\_to (employee id), assigned\_at, due\_at, status (pending/done), completed\_at
+* **Events**: ts, type (call, open, done, missed, alert), detail (JSON)
+* **Inventory**: id, sku, name, count, min\_threshold
+* **Inventory logs**: ts, item\_id, delta, reason, by\_employee
+
+# 5) What you should do **right now**
+
+* Open your **vision-hub** workspace.
+* Add these **Pages/Routes**:
+
+  * `/kiosk` (default screen, shows overlay on call)
+  * `/me` (personal tab flow: PIN → tasks)
+  * `/admin` (call employee, settings, basic CRUD)
+* Add these **Events** (Socket-IO or equivalent):
+
+  * `call:employee` → kiosk overlay + TTS/chime
+  * `task:new` → kiosk alert (and optionally triggers call)
+  * `task:done` → kiosk alert
+* Add **Idle timer** on `/me` with auto-close.
+* Add **Settings** state (intervals, TTS on/off, auto-close minutes).
+
+# 6) Acceptance checklist for the end of today
+
+* [ ] Kiosk loads with current task + alerts + camera sim
+* [ ] Admin can **Call Employee** → kiosk announces by name + overlay shows
+* [ ] “Open Task” → personal tab prompts **PIN**
+* [ ] Idle 2 min → **auto-close** with warning
+* [ ] “Reopen my tasks” works (PIN)
+* [ ] Task “Done” → kiosk alert appears
+* [ ] Settings (auto-close, TTS, chime) update behavior live
+
+---
+
+If you want me to package the **Sprint A & B** pieces as a single downloadable folder (kiosk + call + personal tab + auto-close) so you can drop it into your repo or platform, say the word and I’ll ship it as a zip you can use immediately.

@@ -1,0 +1,115 @@
+Absolutely. Here’s the whole project **rewritten cleanly** (in words), plus a **tight step-by-step plan** so you can keep building—whether you use Replit (for a demo) or run it locally later for real cameras.
+
+# What we’re building (clear + complete)
+
+**StoreHub** — an in-store operations dashboard that:
+
+* runs in a browser (one **kiosk screen** always open),
+* lets employees **check in** by PIN,
+* **calls** a specific employee by name (voice + chime),
+* opens that employee’s **personal task tab** (PIN → their tasks → mark done),
+* **auto-closes** the personal tab after \~2 minutes of no activity,
+* allows the employee to **reopen** their tasks from the kiosk at any time,
+* shows a **camera pane** (cloud demo uses simulated feed; local build can show real RTSP later),
+* supports **light inventory** (cigarettes),
+* logs everything for **daily/weekly reports**.
+
+# How the app behaves (end-to-end)
+
+1. **Kiosk (always on)**
+
+   * Visible to everyone.
+   * Shows current rotating task, alert feed, camera panel, and a “**Reopen my tasks**” button.
+   * When a task is assigned to someone (or a manager calls them), the kiosk **plays a chime** and **speaks their name** (“Elisha, please enter your PIN”), plus a big **Open Task** button and a QR code.
+
+2. **Personal task tab (per employee)**
+
+   * Opens from kiosk (button or QR).
+   * **PIN prompt** → then shows *that employee’s* tasks (due now + next).
+   * Actions: **Mark Done**, **Snooze** (if allowed), **Need Help**.
+   * **Auto-closes** after 2 min idle (shows 10-sec warning).
+   * Can be reopened from kiosk anytime (PIN required).
+
+3. **Tasks & alerts**
+
+   * Task engine assigns a task every N minutes (configurable).
+   * Alerts show for **check-ins**, **new tasks**, **missed tasks**, and (later) **banned face/plate** matches.
+   * Managers can temporarily **mute** the chime for 60 seconds.
+
+4. **Inventory (light)**
+
+   * Cigarette SKUs with counts & low-stock thresholds.
+   * Quick adjustments (delivery, shrinkage, correction).
+   * Low-stock alert appears on kiosk + logs it.
+
+5. **Admin / Settings**
+
+   * Manage employees (names, PINs, roles).
+   * Manage task lists, rotation interval, snooze policy.
+   * Audio settings (chime interval, TTS on/off, repeat count).
+   * Toggle camera mode (simulated vs. RTSP—local only).
+   * View/export logs and daily report.
+
+# What’s included in the project (no code, just contents)
+
+* **Core**: server app, config file, real-time alerts, scheduler.
+* **Kiosk UI**: main screen, alert overlay, camera panel, “reopen my tasks”.
+* **Personal UI**: PIN → tasks → done/snooze/help, auto-close.
+* **Admin UI**: employees, tasks, settings, logs, reports.
+* **Data**: SQLite DB (employees, check-ins, tasks, assignments, inventory, events).
+* **Simulated camera**: always works in cloud/demo.
+* **RTSP camera (later)**: only when you run on your LAN (Mac/Lenovo).
+
+# Definition of Done (so you know it “works”)
+
+* Kiosk loads, rotates tasks automatically, and shows alerts in real time.
+* “Call employee” triggers chime + TTS + overlay with their name.
+* Personal tab opens, authenticates by PIN, shows *their* tasks, and **auto-closes** properly.
+* “Reopen my tasks” from kiosk works at any time (PIN required).
+* Inventory list loads; you can adjust counts; low-stock alerts appear.
+* Everyday logs & a daily summary can be exported (CSV/PDF minimal is fine).
+
+# The next steps (short and simple)
+
+**You said you’ll try Replit again** (for now). Replit can’t see cameras on your network, but it’s perfect for the **kiosk + personal tab + alerts + tasks**. Do this:
+
+1. **Spin up the cloud/demo build**
+
+   * Use the **cloud demo** (simulated camera).
+   * Open the kiosk; confirm: chime, TTS name call, alerts, and personal tab auto-close.
+
+2. **Add the kiosk “Call Employee” flow**
+
+   * From an admin button, pick an employee → kiosk overlay appears (name + task + chime + TTS).
+   * Personal tab opens (PIN → tasks).
+
+3. **Wire task completion & logs**
+
+   * Mark Done → alert on kiosk; write to logs; show in daily summary.
+   * “Reopen my tasks” (PIN) works after tab auto-closes.
+
+Once those pass, you have a working MVP on Replit (no camera yet).
+Later, when you’re ready for live cameras, we run the **local build** on the Lenovo—exact same UI, just a different backend for the camera feed.
+
+# Acceptance checklist for your next test session
+
+* [ ] Kiosk loads, shows current task and alerts.
+* [ ] “Call Elisha” plays **chime** + **speaks** “Elisha” 3 times (configurable).
+* [ ] “Open Task” opens a **new tab** → PIN → shows Elisha’s tasks.
+* [ ] No clicks for \~2 min → tab **auto-closes** after countdown.
+* [ ] From kiosk, **Reopen my tasks** → PIN → tab returns to Elisha’s tasks.
+* [ ] Mark Done → alert appears; daily log shows the completion.
+* [ ] Inventory adjust triggers a low-stock alert when below threshold.
+* [ ] Settings page changes take effect (auto-close mins, chime repeat, TTS on/off).
+
+# What I’ll deliver next (when you say “go”)
+
+* A **clean “kiosk + personal tab” package** (cloud/demo edition) that:
+
+  * includes TTS name-call + chime,
+  * includes the auto-close timer + reopen flow,
+  * includes an admin “Call employee” action,
+  * and includes basic inventory + daily export.
+* This will be a **downloadable folder** you can upload to Replit (or any cloud host) and run immediately (simulated camera).
+
+If you want to change any default behavior (e.g., auto-close time, louder chime, different TTS phrase, require notes on “Done”), tell me now and I’ll bake those into the package you’ll download.

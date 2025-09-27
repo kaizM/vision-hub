@@ -1,0 +1,156 @@
+Got it — you want a **kiosk-style main screen** that’s always open, plus **personal pop-ups** that call out an employee by name, prompt their PIN, show their tasks, then **auto-close** after \~2 minutes (with a way to reopen their tasks later). Here’s a tight, practical spec we can build against.
+
+# The flow (end-to-end)
+
+1. **Main screen (Kiosk) — always on**
+
+   * Shows: store banner, current rotating task, alert feed, and camera pane.
+   * Anyone can see it; no PIN needed.
+   * Never times out. This is the screen managers keep up on a counter PC/TV.
+
+2. **Personal “call”**
+
+   * When the system assigns a task (or a manager picks a person), it **fires a personal alert**:
+
+     * **Audio**: a repeating chime + **text-to-speech** (“Elisha, please enter your PIN.”)
+     * **Visual**: a bold overlay banner on the kiosk + a **big “Open Task” button**.
+   * Clicking “Open Task” (or scanning a QR that appears on the kiosk) opens a **personal task tab** for that employee.
+
+3. **Personal task tab**
+
+   * Step 1: **PIN prompt** (Elisha types her PIN).
+   * Step 2: **Assigned tasks** for Elisha only (what’s due now, what’s next).
+   * Actions:
+
+     * **Mark Done** (with optional note/photo later)
+     * **Snooze** (if allowed by policy) with reason
+     * **Need help** (pings shift lead)
+   * **Auto-close** after **X minutes of no activity** (default 2). A 10-second warning shows before closing.
+   * After closing, the kiosk remains up for everyone.
+
+4. **Reopen later**
+
+   * From the kiosk: “**Reopen my tasks**” button → asks for PIN → reopens Elisha’s tab.
+   * Optional: **magic link** (QR code on the kiosk) that opens their tab on a phone; it still requires PIN.
+
+5. **Logging**
+
+   * Every interaction logs to the Event Log: “called”, “opened personal tab”, “marked done”, “auto-closed”, “reopened”.
+   * Overdue tasks generate kiosk alerts + optional extra chime.
+
+# Roles & rules
+
+* **Employee**: check in, view/complete own tasks, reopen own tasks.
+* **Shift lead**: can reassign/snooze tasks, acknowledge alerts, call a specific employee.
+* **Admin**: manage employees, tasks, policies (auto-close time, snooze allowed, volumes).
+
+# Kiosk behaviors (exact)
+
+* **Always-on**; never prompts for PIN.
+* **Audio**:
+
+  * **Chime** repeats every 10s while a personal alert is unresolved.
+  * **Text-to-speech**: calls name 2–3 times (“Elisha, please enter your PIN”). Volume & repeat count configurable.
+* **Overlay card** shows:
+
+  * Employee name (“Elisha”)
+  * Task title (“Clean Restroom A”)
+  * **Open Task** (button) + **QR** for phone
+  * A small “Mute” toggle (shift lead only) to silence chime for 60s.
+* **Multiple calls**: If two people are called close together, kiosk queues banners in a stack and cycles every 8s; audio references the next name.
+
+# Personal tab behaviors (exact)
+
+* **Auto-close timer** (default 2 minutes):
+
+  * Resets on any interaction (scroll, click, keypress).
+  * 10-second **countdown warning** banner.
+  * On close: “Session closed — reopen from kiosk to continue.”
+* **Offline-safe**: If network blips, the tab shows a reconnect banner and pauses the timer.
+* **Reopen**: From kiosk or by scanning your **QR**, then enter PIN to resume.
+
+# Notifications & sound policy
+
+* **Kiosk sound** chime repeats until:
+
+  * The employee opens their personal tab *or*
+  * A shift lead acknowledges the alert (silences for 60s).
+* **TTS/voice** plays only during the **first 20s** of a call (avoid constant shouting).
+* **Volume** and **repeat limits** are set in Settings.
+
+# Admin settings (what you change in “Settings”)
+
+* **Auto-close minutes** (default 2)
+* **Chime repeat interval** (default 10s)
+* **Use Text-to-Speech** (on/off), **repeat count** (default 3), **voice** (system default)
+* **Allow Snooze** (on/off), **snooze options** (5/10/15 min, configurable)
+* **Require “Done” note/photo** (on/off)
+* **QR login** (on/off)
+* **Kiosk pin** for shift-lead actions (mute/acknowledge)
+* **Task rotation minutes** (30/40/etc.)
+
+# Data we’ll store (so reports make sense)
+
+* **Call events**: who was called, what task, when
+* **Open events**: when the personal tab opened, by whom, device
+* **Actions**: done/snooze/help, notes, timestamps
+* **Auto-close**: when idle timeout fired
+* **Reopen**: count and times
+* **Missed tasks**: if not opened or not completed by due time
+
+# Privacy & safety notes
+
+* The kiosk **never** shows full personal info, only the **first name**.
+* PINs are required for personal task tabs.
+* TTS avoids sensitive phrases (“banned person”) — that stays in manager alerts only.
+
+# What we’ll build next (change list to your current app)
+
+1. **Kiosk mode** (default homepage)
+
+   * Large layout with task banner, camera pane, alerts list, “Reopen my tasks” button.
+   * **Name call overlay** with chime + TTS + QR.
+2. **Call employee action**
+
+   * Button for shift lead to **Call \[employee]** with a chosen task (or default next task).
+   * Emits kiosk event + audio.
+3. **Personal tab**
+
+   * PIN screen → personal task view (due now + next).
+   * **Auto-close** with visible countdown.
+   * “Reopen” path from kiosk and from QR.
+4. **Settings page**
+
+   * All the admin settings above.
+5. **Events & reports**
+
+   * Store call/open/done/snooze/close.
+   * Daily summary (who was called, done/missed, time-to-acknowledge).
+
+# Config defaults I propose
+
+* **Auto-close**: 2 minutes
+* **Chime every**: 10 seconds (max 2 minutes)
+* **TTS repeats**: 3 times (“Elisha, please enter your PIN”)
+* **Snooze options**: off by default (can enable 5/10/15)
+* **Photo required**: off (can enable)
+* **QR login**: on
+* **Task rotation**: 30 minutes
+
+# Edge cases we’ll handle
+
+* **Employee not present**: If not opened within 2 minutes, kiosk posts **“no response”**; shift lead can reassign.
+* **Multiple calls**: Kiosk rotates overlays; queue visible in the manager panel.
+* **Noise**: Shift lead can **Mute 60s** without dismissing the alert.
+* **Shared devices**: If two personal tabs open on one PC, each tab is bound to its employee via PIN; timers independent.
+
+---
+
+If this matches what you want, I’ll package these behaviors into the next build:
+
+* Kiosk overlay + audio/TTS
+* Personal tab with 2-minute auto-close
+* “Reopen my tasks” flow (PIN required)
+* Admin Settings page for the knobs above
+
+Then I’ll ship you a downloadable folder with those features wired in.

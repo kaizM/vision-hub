@@ -5,19 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { Shield, User } from "lucide-react";
 
 interface PinLoginProps {
-  onLogin: (pin: string, employeeName: string, role: string) => void;
+  onLogin: (employee: { id: string; name: string; role: string; pin: string }) => void;
+  onError?: (error: string) => void;
+  title?: string;
+  error?: string;
 }
 
-export function PinLogin({ onLogin }: PinLoginProps) {
+export function PinLogin({ onLogin, onError, title, error }: PinLoginProps) {
   const [pin, setPin] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-
-  // Mock employee data - todo: remove mock functionality
-  const mockEmployees = [
-    { pin: "1234", name: "Store Manager", role: "admin" },
-    { pin: "5678", name: "Sarah Johnson", role: "shift_lead" },
-    { pin: "9999", name: "Mike Chen", role: "employee" }
-  ];
 
   const handleNumberClick = (number: string) => {
     if (pin.length < 4) {
@@ -34,18 +30,35 @@ export function PinLogin({ onLogin }: PinLoginProps) {
     
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      const employee = mockEmployees.find(emp => emp.pin === pin);
-      if (employee) {
-        console.log(`Login successful for ${employee.name}`);
-        onLogin(pin, employee.name, employee.role);
-      } else {
-        console.log("Invalid PIN");
-        setPin("");
+    // Real API call to authenticate employee
+    try {
+      const response = await fetch('/api/employees/authenticate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ pin }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error || "Invalid PIN - Please try again";
+        console.log("Invalid PIN - authentication failed");
+        if (onError) onError(errorMessage);
+        setPin(""); // Clear PIN on error
+        setIsLoading(false);
+        return;
       }
+
+      const employee = await response.json();
+      console.log(`Login successful for ${employee.name}`);
+      onLogin({ ...employee, pin });
       setIsLoading(false);
-    }, 500);
+    } catch (error) {
+      console.error("Authentication error:", error);
+      setPin(""); // Clear PIN on error
+      setIsLoading(false);
+    }
   };
 
   const getRoleColor = (role: string) => {
@@ -64,7 +77,12 @@ export function PinLogin({ onLogin }: PinLoginProps) {
             <Shield className="h-8 w-8 text-primary" />
             <h1 className="text-3xl font-bold text-foreground">StoreHub</h1>
           </div>
-          <p className="text-muted-foreground">Enter your PIN to check in</p>
+          <p className="text-muted-foreground">{title || "Enter your PIN to check in"}</p>
+          {error && (
+            <div className="text-destructive text-sm font-medium bg-destructive/10 rounded-md p-3">
+              {error}
+            </div>
+          )}
         </div>
 
         <Card className="hover-elevate">
@@ -132,23 +150,6 @@ export function PinLogin({ onLogin }: PinLoginProps) {
               </Button>
             </div>
 
-            {/* Demo Instructions */}
-            <div className="text-center space-y-2">
-              <p className="text-xs text-muted-foreground">Demo PINs:</p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {mockEmployees.map((emp) => (
-                  <Badge
-                    key={emp.pin}
-                    variant={getRoleColor(emp.role) as any}
-                    className="text-xs cursor-pointer hover-elevate"
-                    onClick={() => setPin(emp.pin)}
-                    data-testid={`badge-demo-${emp.pin}`}
-                  >
-                    {emp.pin} - {emp.name}
-                  </Badge>
-                ))}
-              </div>
-            </div>
           </CardContent>
         </Card>
       </div>

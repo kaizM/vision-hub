@@ -1,0 +1,229 @@
+Got it. Here’s the **entire project**, end-to-end, in plain words — not just cameras. This is the full blueprint of what we’re building, what’s inside, and how the pieces fit. Keep this as your master plan.
+
+---
+
+# 1) What the product is (one sentence)
+
+**StoreHub** is a local-first, low-cost **in-store operations dashboard** that:
+
+* lets employees **check in** (PIN),
+* assigns **rotating tasks** and tracks completion,
+* raises **real-time alerts** (on-screen, optional email/SMS),
+* optionally **flags banned people/plates** from camera feeds,
+* and manages simple **inventory counts** (e.g., cigarettes),
+  all running on your own PC for near-zero monthly cost.
+
+---
+
+# 2) Core features (the whole thing)
+
+1. **Employee check-in**
+
+   * PIN login screen; marks who’s on shift.
+   * Attendance log (time in/out, device used).
+   * Roles (Employee, Shift Lead, Admin) for access control.
+
+2. **Task engine**
+
+   * Rotating tasks every N minutes (30/40 configurable).
+   * Per-task checklist and “Mark Done” with timestamp.
+   * Overdue/high-priority tasks auto-re-alert.
+   * Daily task templates (opening/closing lists).
+   * Export daily report (PDF/CSV).
+
+3. **Alerts & notifications**
+
+   * Real-time pop-ups on the dashboard (Socket events).
+   * Optional: email/SMS/push (kept off by default to stay free).
+   * Alert types: check-in, new task, missed task, banned face/plate match.
+
+4. **Cameras (optional, modular)**
+
+   * Live preview for 3–5 selected cameras (not all 32).
+   * **Banned faces**: gallery of images (labels), optional recognition.
+   * **Banned plates**: text list; optional plate OCR.
+   * Privacy mode switch: detection only (no ID), or full match (if enabled).
+
+5. **Inventory (lightweight)**
+
+   * Cigarette SKU list, current count, min threshold.
+   * Add/remove stock, shrinkage reason codes.
+   * Low-stock alert and daily count prompt.
+   * CSV export for audits.
+
+6. **Admin**
+
+   * Manage employees (name, PIN, role, status).
+   * Manage tasks (lists, frequencies, templates).
+   * Manage banned gallery & plates.
+   * System settings (demo mode, camera URLs, alert policies).
+   * Logs viewer (filter by date/type).
+
+7. **Reporting**
+
+   * Daily summary (who worked, tasks done/missed, alerts fired).
+   * Weekly inventory deltas & exceptions.
+   * Export to CSV/PDF.
+
+---
+
+# 3) Non-functional goals
+
+* **Cost**: $0/mo or ≤ $10/mo total (optional email/SMS costs if you turn them on).
+* **Local-first**: Works offline on your Lenovo; no cloud required for the core.
+* **Privacy**: Data stored locally (SQLite DB + flat files); optional encryption backup.
+* **24/7**: Auto-start at login; handles crashes (supervisor/task scheduler).
+* **Hardware**: 2021 Lenovo i5 + 8GB RAM is ok for 3–5 feeds + tasks; add a USB SSD for reliability.
+
+---
+
+# 4) Architecture (how it’s built)
+
+* **Frontend**: Single web page (dashboard) served locally.
+* **Backend**: Python Flask + Socket.IO (real-time).
+* **Scheduler**: APScheduler for periodic task assignments & reports.
+* **Database**: SQLite (file on disk) via SQLAlchemy ORM.
+* **Cameras**: OpenCV for RTSP (optional); fallback simulated feed for testing.
+* **Recognition (optional)**:
+
+  * **Faces**: `face_recognition` (needs dlib build; can be skipped).
+  * **Plates**: OpenALPR or Tesseract OCR fallback (optional).
+* **Config**: YAML file for PINs, tasks, camera URLs, switches (demo vs live).
+* **Packaging**: Can run as Python app or Docker container.
+* **Deployment modes**:
+
+  * **Local mode** (full capability, can see cameras).
+  * **Cloud demo** (UI + simulated feed only; can’t see local cameras).
+
+---
+
+# 5) Data model (what we store)
+
+* **Employee**: id, name, pin (hashed), role, active, created_at.
+* **CheckInLog**: id, employee_id, ts_in, ts_out, device.
+* **Task**: id, title, frequency (minutes/daily), category, active.
+* **TaskAssignment**: id, task_id, assigned_at, due_at, assigned_to (optional), status (pending/done/missed), completed_at, notes.
+* **InventoryItem**: id, sku, name, count, min_threshold, last_count_ts.
+* **InventoryLog**: id, item_id, delta (+/-), reason (delivery, shrinkage, adjustment), ts, by_employee.
+* **EventLog**: id, type (alert/checkin/face/plate/inventory/task), detail (text/json), ts.
+* **BannedFace**: id, label, image_path, added_at.
+* **BannedPlate**: id, plate_text, added_at.
+
+(Everything fits comfortably in SQLite; exportable to CSV.)
+
+---
+
+# 6) File/folder structure (what belongs in the project)
+
+* `app.py` — the server entry (routes, sockets, bootstrapping).
+* `config.yaml` — settings: secret key; demo mode; task rotation; camera list; employees (initial pins); recognition switches.
+* `requirements.txt` — dependency list.
+* `templates/` — HTML files (dashboard, admin pages).
+* `static/` — CSS/JS and icons.
+* `data/` — SQLite DB file, CSV exports, logs.
+* `data/banned_faces/` — images for banned individuals.
+* `data/banned_plates.txt` — one plate per line.
+* `README.md` — run instructions & troubleshooting.
+* *(Optional)* `Dockerfile` & `docker-compose.yml` — for one-command runs.
+* *(Optional)* `Procfile` — for Render/Heroku-style platforms.
+
+---
+
+# 7) Configuration (what you can change easily)
+
+* **Task timing**: rotate every X minutes (30/40 default).
+* **Task lists**: add/store multiple templates (e.g., opening/closing).
+* **Employees**: PINs, names, roles.
+* **Cameras**: 3–5 RTSP URLs enabled; others disabled.
+* **Recognition switches**: face on/off; plate on/off; thresholds.
+* **Alerts**: on-screen only (default); optional email/SMS (if you enable a provider).
+* **Demo toggle**: force simulated camera feed for testing.
+
+---
+
+# 8) Security & privacy
+
+* **Local-only** by default; no internet dependency.
+* **Access**: dashboard restricted to store LAN; admin behind a PIN + role.
+* **Retention**: event logs rotate (e.g., 30–90 days) unless exported.
+* **Cameras**: keep ID recognition off unless you need it and it’s legally compliant.
+* **Backups**: nightly copy of SQLite DB + config to USB or NAS (encrypted zip).
+
+---
+
+# 9) Operations (how you run it day-to-day)
+
+* **Start of day**: PC auto-boots, app starts, staff check in with PIN.
+* **All day**: task engine assigns tasks every N minutes; staff mark complete.
+* **Alerts**: pop for check-ins, new tasks, missed tasks, banned matches, low stock.
+* **Inventory**: count cigarettes at set times; log deliveries/adjustments.
+* **End of day**: daily PDF/CSV summary saved to `data/reports/` (optional auto-email if configured).
+
+---
+
+# 10) Hardware & reliability
+
+* **PC**: Lenovo i5 (2021), 8–16GB RAM, SSD. Place in ventilated area, always on.
+* **Network**: Wired to DVR if possible (more stable than Wi-Fi).
+* **Cameras**: Only enable 3–5 streams in app to keep CPU load modest.
+* **Power**: Use a UPS if the store loses power often.
+* **Monitoring**: If the app dies, Windows Task Scheduler/NSSM restarts it.
+
+---
+
+# 11) Cost plan (stay under $10/mo)
+
+* Core stack: **$0** (Python, Flask, SQLite).
+* Optional email/SMS: free tier if available; otherwise a few dollars.
+* Optional cloud demo hosting: free tiers (Railway/Render) available.
+* Storage: local disk (free) + occasional USB backup.
+
+---
+
+# 12) Roadmap (what we do, in order)
+
+**Phase 0 — Demo ready**
+
+* Dashboard up, PIN check-in works.
+* Task rotation works; alerts pop.
+* Simulated camera feed (so it always works anywhere).
+
+**Phase 1 — Store-ready**
+
+* Add 3–5 RTSP URLs; confirm live preview.
+* Add Admin pages (employees, tasks, banned lists).
+* Add daily CSV report and logs viewer.
+
+**Phase 2 — Inventory basics**
+
+* Add cigarette SKUs, low-stock thresholds, in/out logs.
+* Add “count now” prompts & simple shrinkage reasons.
+
+**Phase 3 — Alerts polish**
+
+* Missed task escalation (bigger pop; optional sound).
+* Optional email/SMS; quiet hours.
+
+**Phase 4 — Recognition (optional)**
+
+* Face detection only → later face matching if you enable it.
+* Plate list match (OCR/OpenALPR if installed).
+
+**Phase 5 — Hardening**
+
+* Auto-start on boot; watchdog restart; backup/restore button.
+
+---
+
+# 13) What success looks like (acceptance checklist)
+
+* Staff **check in** reliably; you can see who’s active.
+* Tasks **rotate** every X minutes; >90% on-time completion.
+* **Alerts** appear instantly; no constant false alarms.
+* Camera preview is **stable** for chosen feeds.
+* Inventory **low-stock** alerts make sense; counts are quick.
+* Daily report **exports** and is readable for managers.
+
+---
+
+If you want, I can now package this whole plan into a **printable PDF one-pager** and a **detailed setup checklist**, or jump straight into any section (e.g., Admin screens, Inventory model, or Alert policies) and flesh it out further.

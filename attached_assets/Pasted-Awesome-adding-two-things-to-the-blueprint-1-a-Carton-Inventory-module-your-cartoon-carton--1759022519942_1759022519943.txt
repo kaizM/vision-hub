@@ -1,0 +1,257 @@
+Awesome—adding two things to the blueprint:
+
+1. a **Carton Inventory** module (your “cartoon/carton” counting with name, date/time, delta add/subtract/set/reset + full ledger), and
+2. a **Quick Shortcuts (QS) panel** (small tiles you can name like “Lottery”, each opens an external website in a new tab).
+
+Below is the exact behavior—buttons, fields, validations, and logs—so it’s crystal clear how it all works.
+
+---
+
+# A) Carton Inventory (Segmentary)
+
+## Purpose
+
+Track cigarette **carton** counts with a simple ledger: **who** did it, **when**, **what action** (Add / Remove / Set / Reset), **how many**, and the **resulting total**—all stored locally.
+
+## Where it lives
+
+* **Admin → Backstock & Inventory → Cartons**
+* Optional quick link tile in **QS panel** (see Section B) labeled “Carton Count”
+
+## Data captured (every entry)
+
+* **Employee name** (typed or selected)
+* **Action**: Add / Remove / Set / Reset
+* **Amount** (integer; not required for Reset)
+* **Note** (optional; max 120 chars)
+* **Auto**: Date & time (local), entry ID
+* **Auto**: Delta (+N / −N / (set difference) / −prev on reset), **Total After**
+
+## Screen layout
+
+**Top card: Current Total**
+
+* Large number (e.g., “Cartons: 128”)
+
+**Adjust Form**
+
+* **Employee**: input (autocomplete of employees)
+* **Action**: dropdown (Add / Remove / Set / Reset)
+* **Amount**: number (required for Add/Remove/Set; disabled for Reset)
+* **Note**: free text (optional)
+* **Buttons**:
+
+  * **Apply**
+  * **Undo Last** (Manager only) → confirms → reverts just the most recent entry
+  * **Export CSV** (date range)
+* **Preview** (live): Shows **Total After** before you click Apply
+
+**Ledger Table** (latest first)
+
+* Columns: Date/Time, Employee, Action, Δ, Total After, Note
+* Manager can filter by date, employee, action
+
+## Button behavior
+
+* **Apply**
+
+  * Validates:
+
+    * Employee not empty
+    * Action selected
+    * Amount integer ≥ 0 (if action needs amount)
+  * Calculates delta & **Total After**
+  * Writes a ledger row
+  * Updates “Current Total”
+  * Pushes an info alert to kiosks: “Carton inventory updated: +5 (by Elisha).”
+* **Undo Last** (Manager)
+
+  * Visual confirm (“Undo last change?”)
+  * Removes the most recent ledger row
+  * Restores **Total After** to the prior total
+  * Adds a new hidden audit row internally (so the fact of undo is recorded)
+* **Export CSV**
+
+  * Downloads a CSV with all columns for the selected date range
+
+## Validation
+
+* Add/Remove/Set require Amount (integer)
+* **Remove** cannot make total negative; show “Insufficient stock” and block
+* **Set** can be 0 or higher; if you set lower than current it’s allowed (records a negative delta)
+* **Reset** shows a confirm dialog (“Reset cartons to 0?”)
+
+## Events logged
+
+* `inventory:carton_apply` — {employee, action, amount, delta, total_after, note}
+* `inventory:carton_undo` — {undone_entry_id, total_after}
+
+---
+
+# B) QS Panel (Quick Shortcuts / “soft one of the great”)
+
+## Purpose
+
+A grid of **small square tiles** you define (name + icon/photo + URL). Clicking a tile opens the **external website in a new tab** (example: a Lottery scanning web app).
+
+## Where it lives
+
+* **Kiosk**: right column card “Quick Shortcuts”
+* **Admin → Shortcuts**: manage tiles
+
+## Tile content
+
+* **Name** (required): e.g., “Lottery”
+* **URL** (required): full link (https://…)
+* **Icon/Photo** (optional): small image file or emoji
+* **Category** (optional): e.g., “Ops”, “Vendor”, “Lottery”
+* **Visible on kiosk**: toggle ON/OFF
+
+## Admin actions
+
+* **Add Shortcut**
+
+  * Fields: Name, URL, Icon/Photo (upload or emoji), Category, Visible toggle
+  * **Save**: tile appears immediately on Kiosk (if visible)
+* **Edit Shortcut**
+
+  * Change fields; **Save**
+* **Reorder Tiles**
+
+  * Drag to reorder; order persists
+* **Delete Shortcut**
+
+  * Confirm dialog
+
+## Kiosk behavior
+
+* **Tiles render as small squares** with the icon and name
+* **On click:** open the **URL in a new tab** (so kiosk stays open)
+* If kiosk is in “Full-screen” mode, the new tab still opens; kiosk tab remains pinned
+* **Lottery example**: Name “Lottery”, URL to your mod/MD site, custom icon
+
+## Security (local mode)
+
+* **Whitelist** (optional): Admin can set a list of allowed domains; kiosk blocks tiles that are not whitelisted
+* **Click audit**: Each click logs an event:
+
+  * `shortcut:click` — {shortcut_id, name, url, timestamp}
+
+---
+
+# C) Flows and edge cases
+
+## Carton inventory flow examples
+
+1. **Add 5**
+
+   * Employee: Elisha, Action: Add, Amount: 5
+   * Preview: Total After = 128 → 133
+   * Apply → Ledger row: Δ +5, Total After 133
+
+2. **Remove 3**
+
+   * Employee: Elisha, Action: Remove, Amount: 3
+   * If current total 2 → block with “Insufficient stock”
+   * If current total 133 → OK → Δ −3, Total After 130
+
+3. **Set 100**
+
+   * Employee: Manager, Action: Set, Amount: 100
+   * If current total 130 → Δ −30
+   * Ledger row records Δ −30, Total After 100
+
+4. **Reset**
+
+   * Confirm → Δ = −current_total, Total After 0
+
+5. **Undo Last** (Manager)
+
+   * Reverts most recent entry exactly
+   * Restores Total After to prior value
+
+## QS panel examples
+
+* Add tile **Lottery** → URL to your lottery scanning web site → Visible ON
+* Add tile **Vendor Portal** → URL with login page → Visible OFF (for now)
+* Reorder: drag Lottery to the first position
+* Kiosk click “Lottery” → opens site in new tab; kiosk remains open
+
+---
+
+# D) Buttons & controls (single list for “AI to understand”)
+
+## Carton Inventory page
+
+* **Employee** (text input with suggestions): required
+* **Action** (dropdown): Add / Remove / Set / Reset
+* **Amount** (number): required for Add/Remove/Set; disabled for Reset
+* **Note** (text): optional
+* **Apply** (primary):
+
+  * Validates, previews Total After, writes ledger, updates total, pushes kiosk info alert
+* **Undo Last** (secondary, Manager-only):
+
+  * Confirm dialog → revert last ledger entry
+* **Export CSV** (secondary):
+
+  * Opens file save for CSV (date range selector above the table)
+* **Date Range** (filter above ledger):
+
+  * Start date, End date → filters rows
+
+## QS (Shortcuts) on Kiosk
+
+* **Tile** (square button): shows icon/photo + name
+* **On click:** open URL in a **new tab** (kiosk tab stays)
+
+## Admin → Shortcuts
+
+* **Add Shortcut**:
+
+  * Name (required), URL (required), Icon/Photo (optional), Category (optional), Visible toggle (default ON)
+  * **Save**: tile appears on kiosk
+* **Edit**: same fields → Save
+* **Reorder**: drag handles; order persists
+* **Delete**: confirm dialog → remove tile
+* **Domain Whitelist** (optional setting): comma-separated domains; kiosk allows only whitelisted domains to open
+
+---
+
+# E) Events & logs (added)
+
+* `inventory:carton_apply` — {employee, action, amount, delta, total_after, note, ts}
+* `inventory:carton_undo` — {undone_entry_id, total_after, ts}
+* `shortcut:click` — {shortcut_id, name, url, ts}
+
+(Everything saved to the local SQLite database.)
+
+---
+
+# F) Acceptance checklist
+
+## Cartons
+
+* [ ] Add +5 updates total and logs Δ +5 with your name & timestamp
+* [ ] Remove −3 updates total and logs Δ −3; blocks if it would go below 0
+* [ ] Set to 100 records Δ and shows new total 100
+* [ ] Reset asks confirm and sets to 0 with Δ = −previous
+* [ ] Undo Last reverts exactly the last change
+* [ ] Export CSV downloads the ledger with all columns
+
+## Shortcuts
+
+* [ ] Create tile “Lottery” with your site URL and icon → appears on Kiosk
+* [ ] Clicking “Lottery” opens in a **new tab**; kiosk still visible
+* [ ] Reorder tiles; new order persists on Kiosk
+* [ ] If whitelist is enabled and URL isn’t on it → tile shows blocked message
+* [ ] Clicks are recorded in the event log
+
+---
+
+# G) Where this plugs into the 20-step plan
+
+* **Inventory segmentary (cartons)** = extends Steps **12 & 14** (SKU support + validation) and keeps your dedicated carton flow.
+* **QS panel** = add to **Sprint A** (quick win) so you can immediately link “Lottery” or other vendor pages from the kiosk.
+
+If you want me to ship a **drop-in update** that adds these two modules to your running app (all local, no internet needed), say “go” and I’ll package it as a zip you can paste in.

@@ -1,0 +1,463 @@
+Below is a **complete, words-only functional specification** for your Lemur Express Central Hub. You can **copy/paste** this into your repo/wiki/README. It defines **how everything works**—buttons, screens, schedules, cameras, face/plate matching, inventory cartons, shortcuts, temperature logging, messages, roles, events, and acceptance tests. There’s **no code**—just a precise operating blueprint.
+
+---
+
+# Lemur Express Central Hub — Full Functional Spec (Words Only)
+
+## 0) Principles (Local-Only)
+
+* **Local storage only.** All data lives on the store PC. No cloud services, no paid APIs.
+* **Always up.** Kiosk runs 24/7; managers operate from the same LAN PC or any device on the local Wi-Fi if permitted.
+* **Single source of truth.** One local database file (cartons, employees, tasks, schedules, temperature logs, events).
+* **Real-time but light.** All live updates happen with a local message bus (e.g., Socket channels); no public internet required.
+* **Auditability.** Every action is time-stamped and attributable to a person or system rule.
+
+---
+
+## 1) Roles & Access
+
+* **Manager**
+
+  * Unlocks Admin with **PIN 786110**.
+  * Manages employees, tasks, settings, equipment, cartons, shortcuts, and reports.
+  * Can call any employee; can acknowledge/mute kiosk alerts; can undo inventory entries.
+* **Shift Lead**
+
+  * Can call employees, assign special tasks, acknowledge/mute kiosk alerts.
+  * Cannot change global settings or delete employees.
+* **Employee**
+
+  * Uses `/me` with personal PIN to see assigned tasks, mark done, request help, and enter temperature readings.
+
+---
+
+## 2) Screens & Navigation
+
+### 2.1 Kiosk (always on)
+
+* **Purpose:** Shared store display that never closes.
+
+* **Header:** Store name (left). Buttons (right):
+
+  * **Reopen My Tasks** → opens `/me` in a new tab (PIN required there).
+  * **(Optional) QS Tiles** (Quick Shortcuts) can also appear here (see §9).
+
+* **Sections:**
+
+  1. **Current Task** (read-only): Most recent rotating or assigned task summary.
+  2. **Camera Panel** (read-only): Video preview area (simulated stream until cameras are connected).
+  3. **Alerts Feed**: Real-time stack of events (calls, messages, new tasks, completed tasks, temperature due/missed).
+
+* **Call Overlay (Modal):**
+
+  * Triggers when a **call** is sent for a named employee or a task is assigned with a named assignee.
+  * **Title:** “{FirstName}, please enter your PIN.”
+  * **Subtitle (optional):** “Task: {TaskTitle}.”
+  * **Primary button:** **Open Task** → opens `/me?employeeId={id}` in a **new tab** (kiosk stays open).
+  * **Secondary button (Manager/Shift Lead only):** **Mute 60s** → silences chime on this kiosk for one minute; overlay stays visible.
+  * **QR (optional):** Points to `/me?employeeId={id}` for phones on the local Wi-Fi.
+  * **Audio:**
+
+    * **TTS** (system voice) says “{FirstName}, please enter your PIN.” up to **3 times**.
+    * **Chime** repeats **every 10 seconds** while the overlay is active and not muted.
+  * **Closing rules:**
+
+    * Closes automatically when the employee authenticates on `/me` and the system acknowledges that call, **or** a Manager explicitly **Acknowledges** from Admin.
+
+* **Multiple Calls Queue:**
+
+  * If more than one call is active, kiosk cycles overlays every **8 seconds**.
+  * TTS plays for a maximum of **two cycles per call**; chime continues on interval while unresolved.
+  * **Mute 60s** only affects the currently displayed call on that kiosk.
+
+### 2.2 Personal Tab: `/me`
+
+* **Step 1 – PIN Prompt:**
+
+  * Field: **PIN** (required).
+  * Button: **Continue**.
+  * Error if blank or invalid.
+* **Step 2 – My Tasks:**
+
+  * **Greeting:** “Welcome, {FirstName}.”
+  * **Idle Timer:** Auto-close after **2 minutes** with **10-second** visible countdown; any interaction resets timer.
+  * **Task lists:**
+
+    * **Due Now** (assigned to this employee; soonest due first).
+    * **Next** (upcoming tasks).
+  * **Per task actions:**
+
+    * **Done** → immediately marks complete; displays a confirmation; sends a completion alert to kiosks.
+    * **Need Help** → marks status “help requested”; shows an alert to kiosks/Admin.
+
+### 2.3 Admin: `/admin`
+
+* **Lock screen:** PIN field + **Unlock Admin**. On success, creates a Manager session.
+* **Tabs:** **Dashboard | Employees | Tasks | Messages | Temperature | Backstock | Shortcuts | Reports | Settings**
+
+  * **Top-right:** **Logout** (ends Manager session), **Open Kiosk** (opens `/kiosk`).
+
+---
+
+## 3) Employees & Authentication
+
+### 3.1 Employees (Admin → Employees)
+
+* **List:** Name, Role (Employee/Shift Lead/Manager), Active status, Last Check-in.
+* **Buttons:**
+
+  * **Add Employee** → Name (required), Role (default Employee), **PIN** (numeric, required).
+  * **Edit** → Change name, role, active; **Reset PIN** (optional).
+  * **Deactivate** → Confirm; user cannot authenticate until reactivated.
+* **Validation:**
+
+  * Name required; PIN is numeric and unique; store only hashed PINs (Manager PIN may remain in settings as the admin gate).
+
+### 3.2 Access Rules
+
+* All **Admin APIs** require a Manager session (or Shift Lead where allowed).
+* `/me` requires valid employee PIN; assigns a short-lived session for this tab only.
+
+---
+
+## 4) Tasks System (Regular + Special + Logs)
+
+### 4.1 Definitions
+
+* **Regular Task**: A repeating template (e.g., “Check Bathrooms every 90 minutes”).
+* **Special Task**: One-off, typed task (e.g., “Clean Pump 4 now”).
+* **Task Log**: The **actual instance** created for execution (source = regular or special), with assigned employee, due time, and status.
+
+### 4.2 Admin → Tasks
+
+* **Regular tab:**
+
+  * Table: Title, Frequency (minutes), Active (toggle).
+  * Controls: **Add**, **Edit**, **Deactivate**.
+  * Adding a regular task requires Title + Frequency minutes.
+* **Special tab:**
+
+  * Form: **Task Title** (free text, required), **Assignee** (employee or “Unassigned”), **Optional due in minutes**.
+  * **Send Now** creates a **Task Log** immediately:
+
+    * If Assignee chosen → kiosks **ring** and show call overlay.
+    * If Unassigned → kiosks show “Unassigned task” card; Manager can assign later.
+
+### 4.3 Scheduler (Auto-Loop)
+
+* **Interval:** Every **1 minute**.
+* **Logic:**
+
+  1. Scan **active Regular Tasks**.
+  2. For each, determine if it’s time to create a new **Task Log** (based on last creation time + frequency).
+  3. If due, choose next active employee in **round-robin order** (skipping Manager).
+  4. Create a **Task Log** with status `pending`, **due_at = now + grace window** (default **30 minutes**).
+  5. Emit **`task:new`** to kiosks; if there is an assignee, it may also trigger a **`call:employee`** event (rings & TTS).
+* **Missed tasks:**
+
+  * If **current time > due_at** and status still `pending`, mark as **`missed`** and emit **`task:missed`** (red alert).
+  * Manager can later reassign or convert it to a follow-up special task.
+
+### 4.4 Personal Tab actions
+
+* **Done:** Marks task log `done`, sets completion time, emits **`task:done`**.
+* **Need Help:** Marks task log `help` and emits **`help:request`** alert.
+
+---
+
+## 5) Calling & Alerts
+
+### 5.1 Call Employee (Admin Dashboard)
+
+* **Form:** Select **Employee**, optional **Task Title** (free text).
+* **Call Now** → emits **`call:employee {employeeId, employeeName, taskTitle?}`** to **all kiosks**.
+* **Result:** Kiosks ring + TTS + overlay until acknowledged or employee opens `/me` and authenticates.
+
+### 5.2 Acknowledge & Re-call (Admin Dashboard)
+
+* **Active Alerts** panel lists current calls.
+* **Acknowledge:** stops chime + closes overlay for that call.
+* **Re-call:** re-emits call if employee has not responded.
+
+---
+
+## 6) Temperature Logging (Equipment & Prompts)
+
+### 6.1 Admin → Temperature → Equipment
+
+* **Table:** Name, Min °F, Max °F, **Interval (hours)**, Active toggle.
+* **Common entries:** Beer/Grocery Walk-in, Kitchen Cooler, Kitchen Freezer, Open Island, Ice-cream Freezer.
+* **Add/Edit:** Adjust thresholds and intervals (default **14 hours**).
+
+### 6.2 Prompts & Readings
+
+* **Due generation:** For each active equipment, schedule a **due time** every `interval_hours` from last completion.
+* **Kiosk prompt:** When due, kiosks show “Temperature reading due: {Equipment}” card with **Open Entry**.
+* **Personal tab entry:** If `/me` is opened with intent for a specific unit (or via prompt), show a modal to enter °F.
+
+  * **Validation:** Numeric. Compare to Min/Max → **ok**, **low**, or **high**.
+  * **Save:** Store reading, status, time, and the employee who entered it.
+  * **Alerts:** Out-of-range triggers a red alert; missed past **30 minutes** after due triggers **missed** alert; after **60 minutes** escalate severity.
+
+### 6.3 History & Export
+
+* Admin can view a log of readings per equipment and **Export CSV** for any date range.
+
+---
+
+## 7) Carton Inventory (Backstock Ledger)
+
+### 7.1 Admin → Backstock (Cartons)
+
+* **Current Total** (large number).
+* **Adjust Form:**
+
+  * **Employee Name** (free text or pick from active employees).
+  * **Action**: Add / Remove / Set / Reset.
+  * **Amount**: integer (required for Add/Remove/Set; disabled for Reset).
+  * **Note**: optional, up to 120 chars.
+  * **Apply** → Validates, computes **Δ (delta)** and **Total After**, logs the row (Date/Time auto), updates the total, and adds an info alert to kiosks.
+  * **Undo Last** (Manager only) → Confirms and reverts the most recent entry, restoring the prior total exactly.
+  * **Export CSV** → Downloads the ledger with Date/Time, Employee, Action, Δ, Total After, Note.
+* **Validation:**
+
+  * Remove cannot make total negative.
+  * Set can be any non-negative integer.
+  * Reset confirms and sets total to 0.
+
+---
+
+## 8) Messages (Store Comms)
+
+### 8.1 Admin → Messages
+
+* **Broadcast:** Compose a message → **Send to All Kiosks**.
+
+  * Kiosks show a large notice (no TTS).
+* **Direct:** Choose an employee → **Send**.
+
+  * Kiosks display a notice for that person and `/me` shows it on next open.
+* **History:** Recent messages with timestamp and sender.
+
+---
+
+## 9) Quick Shortcuts (QS) Tiles
+
+### 9.1 Admin → Shortcuts
+
+* **Tile fields:** Name (required), URL (required), Icon/Photo (optional), Category (optional), Visible (toggle).
+* **Controls:** Add, Edit, Reorder (drag), Delete (confirm).
+* **Optional whitelist:** If enabled, kiosk only opens URLs that match allowed domains.
+
+### 9.2 Kiosk → QS panel
+
+* **Tiles** appear as small squares with icon and name.
+* **Click** opens the target **URL in a new tab**. The kiosk remains open.
+
+**Example:** **Lottery** tile → opens your lottery scanning site locally.
+
+---
+
+## 10) Cameras (Prefix + Preview + Later RTSP)
+
+### 10.1 Camera Entries (Admin → Settings → Cameras)
+
+* **Fields per camera:** Name, Local RTSP URL (e.g., `rtsp://user:pass@192.168.x.y:554/live`), Enabled (toggle).
+* **State:** Initially **simulated** preview while you don’t have RTSP wired.
+* **Preview behavior:**
+
+  * If a camera is Enabled with no valid RTSP, show “Simulated Stream.”
+  * When you enter the proper RTSP and the store PC has the streamer running, the kiosk Camera Panel will show the actual live preview.
+
+### 10.2 RTSP Note
+
+* Browsers can’t directly display RTSP. You’ll run a **local converter** (e.g., ffmpeg) later to convert RTSP → browser-friendly preview (MJPEG/HLS).
+* For this spec, the UI must gracefully show simulated preview until the real converter is online.
+
+---
+
+## 11) Banned Faces & Plates (Foundation, Local Only)
+
+> **Important**: Laws differ by location. You must confirm legality and signage/notice requirements before using any automated identification. This system is designed to run locally and to **require Manager review** of any detection alerts before action.
+
+### 11.1 Banned Faces (Manager)
+
+* **Enroll person:** Upload one or more face images; label them (e.g., “John_Doe_2025”).
+* **Storage:** Local embeddings + audit of who enrolled and when.
+* **Matching:**
+
+  * A light-load **sampling** process grabs a still frame from specific cameras (e.g., 1 frame per second per watched camera).
+  * Each sampled frame is checked for known faces; if **score surpasses match threshold** (tuneable), create a **“Face Match Alert”**:
+
+    * Fields: label, confidence/score, camera name, timestamp, snapshot thumbnail.
+    * Status: **Pending Review** (default).
+  * **Manager Actions on Alert:** **Acknowledge** (dismiss), **Confirm Match** (log and push high-priority kiosk banner), **False Positive** (log and optionally lower confidence for that label/camera).
+* **Operator Policy:** Only a Manager can escalate a match to a store-wide alert; the kiosk should not automatically accuse people without Manager confirmation.
+
+### 11.2 Banned Plates (Manager)
+
+* **Add plate text:** Normalized string (e.g., “ABC1234”).
+* **Detection:**
+
+  * Plate OCR tries to read plates from sampled frames in the parking lot camera(s).
+  * If read text **equals** or **fuzzy-matches** a banned entry, create a **“Plate Match Alert”** (Pending Review).
+* **Manager Actions:** Same as faces (Acknowledge/Confirm/False Positive).
+
+### 11.3 System Behavior on Confirmed Alerts
+
+* When Manager **confirms** a face/plate alert:
+
+  * **Kiosk** shows a red banner: “Manager alert: Attention required at {location}.”
+  * **No personal details** are read aloud; ONLY the Manager view shows detailed info.
+
+---
+
+## 12) Settings (Admin → Settings)
+
+* **Local Mode:** ON (fixed; indicates no internet content is used).
+* **Audio:** Chime interval seconds (**10** default); TTS on/off (default ON), TTS repeats (**3**).
+* **Personal Tab:** Auto-close minutes (**2** default).
+* **Task Defaults:** Regular frequency default (used when creating a template).
+* **Camera List:** Add/Edit camera name + RTSP URL; enabled toggle.
+* **Equipment Defaults:** Default temperature interval (e.g., **14 hours**).
+* **Domain Whitelist:** Optional list for Shortcuts (QS).
+* **Backup/Restore:** Create a zip (database + settings) and restore from a zip (Manager-only, double confirm).
+* **Logout** ends the Manager session.
+
+---
+
+## 13) Events (Internal Names & Meanings)
+
+* `call:employee` — An employee was called; kiosks ring and overlay appears.
+* `call:ack` — A call was acknowledged (chime stops; overlay closes).
+* `task:new` — A task log was created (regular spawn or special).
+* `task:done` — A task log was completed by an employee.
+* `task:missed` — A pending task passed its due time without completion.
+* `help:request` — An employee requested help on a task.
+* `temp:due` — A temperature reading became due.
+* `temp:missed` — A temperature reading was missed by the grace window.
+* `temp:alert` — A temperature reading was out of range (high/low).
+* `inventory:carton_apply` — A carton ledger change was applied.
+* `inventory:carton_undo` — The last carton ledger entry was reverted.
+* `message:broadcast` — A broadcast message was sent to kiosks.
+* `message:direct` — A direct message was sent to a person.
+* `shortcut:click` — A QS tile was clicked.
+* `vision:face_alert` — A face match alert was created (Pending Review).
+* `vision:plate_alert` — A plate match alert was created (Pending Review).
+* `vision:alert_confirmed` — A Manager confirmed an alert (escalate to kiosk red banner).
+
+---
+
+## 14) Validation Rules
+
+* **Employee name:** 2–40 chars, non-blank.
+* **PIN:** numeric, 3–8 digits, unique (employees), hashed at rest.
+* **Regular task:** Title required, frequency 1–1440 minutes.
+* **Special task:** Title required, optional assignee, optional due minutes ≥ 1.
+* **Carton amount:** integer ≥ 0; “Remove” cannot drop total below 0; “Reset” requires confirm.
+* **Temperature equipment:** Name required; Min < Max; interval 1–48 hours.
+* **Message text:** 1–500 chars.
+* **QS tile:** Name and valid URL required; if whitelist enabled, URL domain must be allowed.
+
+---
+
+## 15) Operating Procedures (Manager SOP)
+
+### 15.1 Daily Start
+
+1. Ensure kiosk screen is open on `/kiosk`.
+2. Check **Active Alerts** in Admin; clear any leftovers.
+3. Confirm **Temperature** next due times make sense for the day.
+4. Review **Regular Tasks** list (frequencies, active toggles).
+
+### 15.2 During Shift
+
+* Use **Call Employee** to grab someone’s attention; kiosk will ring.
+* Send **Special Tasks** (free text) as needed; assign to a person for immediate ringing.
+* Watch **Alerts Feed** for temperature due/missed; have the right person enter readings.
+* Update **Carton Count** when stock is moved in/out; use **Undo Last** if a mistake happens.
+* Send **Messages** to broadcast important notices (deliveries, safety issues).
+
+### 15.3 End of Day
+
+* Download **Daily Report** (CSV/HTML) for tasks, temperatures, cartons.
+* Create a **Backup** (optional) to the backups folder or USB.
+* Log out from Admin.
+
+---
+
+## 16) Acceptance Tests (quick checks)
+
+### 16.1 Calls & Kiosk
+
+* Call “Elisha” from Admin → all kiosks **ring** and speak name → overlay shows “Open Task.”
+* Press **Mute 60s** on kiosk → chime stops for one minute (overlay remains).
+* Authentication on `/me` **closes overlay** automatically.
+
+### 16.2 Regular & Special Tasks
+
+* Add Regular task “Check Bathrooms every 90 min” → scheduler spawns a task log within its cycle → kiosks show **task:new**.
+* Send Special task “Clean Pump 4” with assignee → kiosks ring immediately.
+* On `/me`, employee taps **Done** → kiosks show **task:done**.
+
+### 16.3 Temperature
+
+* Add “Kitchen Freezer” min −10, max 10, interval 14h → when due, kiosks show prompt.
+* Enter −12°F → system marks **low** and raises a **temp:alert**.
+
+### 16.4 Cartons
+
+* Apply **Add 5** by Elisha → total increases; ledger row logged.
+* Apply **Remove 3** → total decreases; block if would go below 0.
+* **Undo Last** restores the prior total.
+
+### 16.5 QS Tiles
+
+* Create **Lottery** tile to your site → appears on kiosk → clicking opens in a new tab.
+
+### 16.6 Vision Alerts (foundation behavior)
+
+* Enroll a test face (locally) and simulate a match → **vision:face_alert** appears in Admin as **Pending Review**.
+* Manager **confirms** → kiosks show a generic red banner “Manager alert: attention required” (no personal details spoken).
+
+---
+
+## 17) Future-Proofing & Safety Notes
+
+* **Legal & policy:** Use “Pending Review” for any identity or plate recognition; a Manager must confirm. Consider signage and local regulations.
+* **Performance:** Start with **1 frame per second** sampling on selected cameras. Adjust only after measuring load.
+* **Resilience:** Provide **Backup/Restore** in Settings to protect local data.
+* **Scalability:** If more cameras or higher frame rates are needed, consider a separate local vision box (no cloud).
+
+---
+
+## 18) Defaults (change later in Settings)
+
+* **Manager PIN:** 786110
+* **Chime interval:** 10 seconds
+* **TTS:** ON, 3 repeats
+* **Personal tab auto-close:** 2 minutes (10-sec warning)
+* **Regular task default frequency:** 90 minutes
+* **Temperature interval default:** 14 hours
+* **QS whitelist:** OFF by default (no restriction); can enable later
+
+---
+
+## 19) What “Done” Means for Phase 2 (Scheduling)
+
+* Regular task templates exist; scheduler spawns task logs automatically and rotates assignees.
+* Special tasks create immediate task logs; if assigned, kiosks ring at once.
+* `/me` shows Due Now/Next, supports Done/Help, and auto-closes.
+* Admin can see Active Alerts, Acknowledge calls, Re-call, and review logs.
+* Temperature prompts, carton ledger, and QS tiles all function locally.
+* Vision alerts create **Pending Review** items; Manager confirmation escalates to kiosk banner.
+
+---
+
+## 20) Manager Quick-Reference (one paragraph)
+
+Open **Admin** (PIN 786110) to add staff, define **Regular Tasks**, send **Special Tasks** (assigned = rings now), manage **Temperature** prompts (enter readings), update **Carton** counts (Add/Remove/Set/Reset + Undo), add **Shortcuts** (e.g., Lottery) for staff, and **review/acknowledge** all alerts. Staff use `/me` with their PIN to complete tasks and enter temperatures; kiosk stays open with calls, alerts, and shortcuts—all **local-only**, always available.
+
+---
+
+**This is the whole project in words.** If you want, I can now turn this spec into a **checklist** you can paste into your task tracker (one line per action), or generate **fill-in templates** (e.g., a blank “Equipment Setup Sheet,” “Regular Task Library,” “Carton SOP”)—also words-only.

@@ -2,16 +2,17 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Shield, User } from "lucide-react";
+import { Shield, User, Crown } from "lucide-react";
 
 interface PinLoginProps {
   onLogin: (employee: { id: string; name: string; role: string; pin: string }) => void;
+  onManagerLogin?: () => void;
   onError?: (error: string) => void;
   title?: string;
   error?: string;
 }
 
-export function PinLogin({ onLogin, onError, title, error }: PinLoginProps) {
+export function PinLogin({ onLogin, onManagerLogin, onError, title, error }: PinLoginProps) {
   const [pin, setPin] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -149,6 +150,25 @@ export function PinLogin({ onLogin, onError, title, error }: PinLoginProps) {
                 {isLoading ? "Checking..." : "Login"}
               </Button>
             </div>
+
+            {/* Manager Access Option */}
+            {onManagerLogin && (
+              <div className="pt-4 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-sm hover-elevate"
+                  onClick={onManagerLogin}
+                  data-testid="button-manager-access"
+                >
+                  <Crown className="h-4 w-4 mr-2 text-amber-500" />
+                  Manager Access
+                </Button>
+                <p className="text-xs text-center text-muted-foreground mt-2">
+                  For administrative functions and system management
+                </p>
+              </div>
+            )}
 
           </CardContent>
         </Card>

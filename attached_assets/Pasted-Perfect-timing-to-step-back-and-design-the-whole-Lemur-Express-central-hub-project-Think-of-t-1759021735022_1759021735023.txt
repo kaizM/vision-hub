@@ -1,0 +1,167 @@
+Perfect timing to step back and design the **whole Lemur Express “central hub” project**. Think of this as your **master plan** — every module, feature, and future extension, broken into **phases** so you can build step by step without getting lost.
+
+---
+
+# 🏪 Lemur Express StoreHub – Central Hub Blueprint
+
+## 🎯 Core Vision
+
+A **single local-first system** (no cloud fees) that manages:
+
+* Employee calls & tasks
+* Real-time kiosk alerts
+* Temperature logging
+* Inventory/backstock
+* Quick shortcuts to external vendor tools
+* Admin-only control for scheduling, assignments, and reports
+
+All running from the **store’s PC**, accessible via browser tabs on kiosks, desktops, or even your phone on local Wi-Fi.
+
+---
+
+## 🚀 Phased Roadmap
+
+### **Phase 1: Foundation (done / in progress)**
+
+* [x] **Kiosk app**: fullscreen, always-on, shows tasks & alerts.
+* [x] **Call employee overlay** with ringing + TTS.
+* [x] **Personal tab (`/me`)** with PIN login & auto-close.
+* [x] **Admin panel** locked with PIN `786110`.
+* [x] **Special tasks** (send on demand).
+* [x] **Backstock / carton counting** (Add/Remove/Set/Reset + logs).
+* [x] **Quick Shortcuts (QS)** tiles → external vendor sites like lottery portal.
+
+✅ Where we left off: Admin can call employees, kiosks ring, tasks show, inventory logs work.
+
+---
+
+### **Phase 2: Task & Scheduling System**
+
+* **Regular tasks**:
+
+  * Manager defines repeating jobs (every 90 min, every day at 8 AM, etc).
+  * Auto-rotate tasks to employees.
+* **Special tasks**:
+
+  * Manager sends free-text tasks instantly.
+* **Task states**: Pending → Done / Missed.
+* **Kiosk feeds**: Always show “current” and “next” tasks.
+* **Reminders**: Missed task triggers an extra chime + kiosk banner.
+
+---
+
+### **Phase 3: Temperature Monitoring**
+
+* **Equipment list**: Beer cooler, grocery cooler, kitchen freezer, island freezer, ice cream freezer.
+* **Interval logging**: Every 14 hours (configurable).
+* **Prompts**: Kiosks remind employees → “Enter freezer temperature.”
+* **Validation**: Out of range = warning alert.
+* **Escalation**: Missed entry after 30 min = red alert.
+* **Reports**: CSV download of readings (ok/high/low/missed).
+
+---
+
+### **Phase 4: Advanced Inventory**
+
+* **Carton ledger (done)**: Manual add/remove.
+* **Expansion**:
+
+  * Support for **categories** (cigarettes, lottery books, drinks).
+  * Local barcode scanner input (optional).
+  * Employee name + date/time always logged.
+* **Audit log**: Ledger visible to Manager only.
+* **Undo / Reset**: Manager controls only.
+
+---
+
+### **Phase 5: Messaging & Communication**
+
+* **Broadcasts**: Manager sends store-wide alerts → kiosk banners.
+* **Direct messages**: To specific employees → show only for them.
+* **Help requests**: Employee can press “Need Help” → alert Manager.
+* **Auto-logging**: All comms stored with date/time.
+
+---
+
+### **Phase 6: Reporting & Insights**
+
+* **Daily / weekly reports**:
+
+  * Task completion rates
+  * Average response times
+  * Temperature compliance
+  * Inventory deltas
+* **Charts (local)**: No internet required; simple line/bar graphs.
+* **Exports**: CSV for each category.
+
+---
+
+### **Phase 7: AI Assistance (optional, future)**
+
+* **AI task suggestions**: Suggests tasks based on patterns (“Restock drinks every 2 hrs”).
+* **AI temperature alerts**: Predict failure risks if cooler temps trend upward.
+* **AI language support**: Auto-translate tasks into employee’s language if needed.
+* **AI assistant for Manager**: “Summarize today’s issues” → instant report.
+
+---
+
+### **Phase 8: Security & Access**
+
+* **PIN system**: Already in place.
+* **Manager-only modules**: Backstock, reports, settings.
+* **Shift-lead role**: Can assign tasks but not change system settings.
+* **Audit logging**: Every action has timestamp + employee.
+
+---
+
+## 📋 Button-by-Button Expected Behavior
+
+* **Kiosk**
+
+  * “Open Task” → `/me` tab with PIN login.
+  * “Mute 60s” → silences local chime but overlay stays.
+  * QS Tile → opens vendor site in new tab.
+
+* **/me**
+
+  * “Done” → marks task finished, sends alert to kiosks.
+  * “Need Help” → alerts manager instantly.
+  * Auto-close after 2 min → back to kiosk.
+
+* **Admin**
+
+  * “Call Now” → rings kiosks + TTS employee name.
+  * “Add Employee” → new PIN + role.
+  * “Add Task” → regular or special task.
+  * “Message → All Kiosks” → broadcast alert.
+  * “Add Equipment” → track cooler/freezer.
+  * “Export CSV” → download logs.
+
+* **Backstock / Cartons**
+
+  * “Apply” → updates total, logs entry.
+  * “Undo Last” → Manager-only; reverts one entry.
+  * “Reset” → zero total with confirm.
+
+* **Shortcuts (QS)**
+
+  * “Add Shortcut” → Name + URL + icon → shows on kiosks.
+  * Clicking tile → opens external page in new tab.
+
+---
+
+## 💡 Extra Ideas for Lemur Express Central Hub
+
+* **Shift checklist**: Auto-prompt employees at clock-in for opening/closing duties.
+* **Digital incident log**: Employees can log accidents, spills, or issues.
+* **Customer counter**: Simple clicker at kiosk to track traffic.
+* **Maintenance reminders**: Schedule monthly equipment cleanings.
+* **Lottery shift log**: Track which books are opened/closed each day.
+* **Cash drop reminders**: Prompt employees every 2–3 hrs to drop excess cash.
+
+---
+
+✅ So right now you’re at the **end of Phase 1**.
+The **next step** is to build **Phase 2 (Task Scheduling System)** so employees get repeating tasks automatically instead of only manual/special ones.
+
+Would you like me to **write out the exact DB structure + front-end flow for Phase 2 tasks** so you can paste it into your repo and start coding immediately?

@@ -6,6 +6,7 @@ import { CameraFeed } from "./CameraFeed";
 import { InventoryCard } from "./InventoryCard";
 import { EmployeeStatus } from "./EmployeeStatus";
 import { AlertBanner } from "./AlertBanner";
+import { TaskManagement } from "./TaskManagement";
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { LayoutDashboard, CheckSquare, Package, Camera, Users, Settings, Activity, Sun, Moon } from "lucide-react";
 
@@ -27,6 +28,7 @@ interface DashboardProps {
 export function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [darkMode, setDarkMode] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [activeView, setActiveView] = useState("dashboard");
 
   // Mock data - todo: remove mock functionality
   const mockTasks = [
@@ -141,31 +143,37 @@ export function Dashboard({ currentUser, onLogout }: DashboardProps) {
     {
       title: "Dashboard",
       icon: LayoutDashboard,
-      isActive: true
+      view: "dashboard"
     },
     {
       title: "Tasks",
-      icon: CheckSquare
+      icon: CheckSquare,
+      view: "tasks"
     },
     {
       title: "Inventory", 
-      icon: Package
+      icon: Package,
+      view: "inventory"
     },
     {
       title: "Cameras",
-      icon: Camera
+      icon: Camera,
+      view: "cameras"
     },
     {
       title: "Employees",
-      icon: Users
+      icon: Users,
+      view: "employees"
     },
     {
       title: "Reports",
-      icon: Activity
+      icon: Activity,
+      view: "reports"
     },
     ...(currentUser.role === "admin" ? [{
       title: "Settings",
-      icon: Settings
+      icon: Settings,
+      view: "settings"
     }] : [])
   ];
 
@@ -211,8 +219,15 @@ export function Dashboard({ currentUser, onLogout }: DashboardProps) {
               <SidebarMenu>
                 {menuItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={item.isActive}>
-                      <button className="flex items-center space-x-2 w-full">
+                    <SidebarMenuButton 
+                      asChild 
+                      isActive={activeView === item.view}
+                    >
+                      <button 
+                        className="flex items-center space-x-2 w-full"
+                        onClick={() => setActiveView(item.view)}
+                        data-testid={`nav-${item.view}`}
+                      >
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
                       </button>
@@ -229,7 +244,16 @@ export function Dashboard({ currentUser, onLogout }: DashboardProps) {
         {/* Header */}
         <header className="flex items-center justify-between p-4 border-b bg-background">
           <div>
-            <h1 className="text-2xl font-bold">Operations Dashboard</h1>
+            <h1 className="text-2xl font-bold">
+              {activeView === "dashboard" ? "Operations Dashboard" :
+               activeView === "tasks" ? "Task Management" :
+               activeView === "inventory" ? "Inventory Management" :
+               activeView === "cameras" ? "Camera Monitoring" :
+               activeView === "employees" ? "Employee Management" :
+               activeView === "reports" ? "Reports & Analytics" :
+               activeView === "settings" ? "Settings" :
+               "StoreHub"}
+            </h1>
             <p className="text-sm text-muted-foreground">
               {currentTime.toLocaleDateString()} - {currentTime.toLocaleTimeString()}
             </p>
@@ -255,115 +279,159 @@ export function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
         {/* Main Content */}
         <main className="flex-1 overflow-auto p-6">
-          <div className="space-y-6">
-            {/* Alerts */}
-            <AlertBanner alerts={mockAlerts} onDismiss={handleAlertDismiss} />
+          {activeView === "dashboard" && (
+            <div className="space-y-6">
+              {/* Alerts */}
+              <AlertBanner alerts={mockAlerts} onDismiss={handleAlertDismiss} />
 
-            {/* Top Row - Employee Status */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-1">
-                <EmployeeStatus
-                  currentUser={currentUser}
-                  activeEmployees={activeEmployees}
-                  onCheckOut={() => console.log("Check out")}
-                  onViewAll={() => console.log("View all employees")}
-                />
-              </div>
-              
-              {/* Quick Stats */}
-              <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Pending Tasks</CardTitle>
-                    <CheckSquare className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {mockTasks.filter(t => t.status === "pending").length}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {mockTasks.filter(t => t.isOverdue).length} overdue
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
-                    <Package className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {mockInventory.filter(i => i.count <= i.minThreshold).length}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Need attention
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Active Cameras</CardTitle>
-                    <Camera className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {mockCameras.filter(c => c.isActive).length}/{mockCameras.length}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Online feeds
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            {/* Tasks Section */}
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Active Tasks</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {mockTasks.map(task => (
-                  <TaskCard
-                    key={task.id}
-                    {...task}
-                    onComplete={handleTaskComplete}
-                    onReassign={handleTaskReassign}
+              {/* Top Row - Employee Status */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-1">
+                  <EmployeeStatus
+                    currentUser={currentUser}
+                    activeEmployees={activeEmployees}
+                    onCheckOut={() => console.log("Check out")}
+                    onViewAll={() => console.log("View all employees")}
                   />
-                ))}
-              </div>
-            </div>
+                </div>
+                
+                {/* Quick Stats */}
+                <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Pending Tasks</CardTitle>
+                      <CheckSquare className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">
+                        {mockTasks.filter(t => t.status === "pending").length}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {mockTasks.filter(t => t.isOverdue).length} overdue
+                      </p>
+                    </CardContent>
+                  </Card>
 
-            {/* Camera Feeds */}
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Camera Feeds</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {mockCameras.map(camera => (
-                  <CameraFeed
-                    key={camera.id}
-                    {...camera}
-                    onSettings={() => console.log(`Settings for ${camera.id}`)}
-                    onFullscreen={() => console.log(`Fullscreen ${camera.id}`)}
-                  />
-                ))}
-              </div>
-            </div>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
+                      <Package className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">
+                        {mockInventory.filter(i => i.count <= i.minThreshold).length}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Need attention
+                      </p>
+                    </CardContent>
+                  </Card>
 
-            {/* Inventory */}
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Inventory Status</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {mockInventory.map(item => (
-                  <InventoryCard
-                    key={item.id}
-                    {...item}
-                    onUpdateCount={handleInventoryUpdate}
-                    onQuickCount={() => console.log(`Quick count ${item.id}`)}
-                  />
-                ))}
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Active Cameras</CardTitle>
+                      <Camera className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">
+                        {mockCameras.filter(c => c.isActive).length}/{mockCameras.length}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Online feeds
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+
+              {/* Tasks Section */}
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Active Tasks</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {mockTasks.map(task => (
+                    <TaskCard
+                      key={task.id}
+                      {...task}
+                      onComplete={handleTaskComplete}
+                      onReassign={handleTaskReassign}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Camera Feeds */}
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Camera Feeds</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {mockCameras.map(camera => (
+                    <CameraFeed
+                      key={camera.id}
+                      {...camera}
+                      onSettings={() => console.log(`Settings for ${camera.id}`)}
+                      onFullscreen={() => console.log(`Fullscreen ${camera.id}`)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Inventory */}
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Inventory Status</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {mockInventory.map(item => (
+                    <InventoryCard
+                      key={item.id}
+                      {...item}
+                      onUpdateCount={handleInventoryUpdate}
+                      onQuickCount={() => console.log(`Quick count ${item.id}`)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {activeView === "tasks" && <TaskManagement />}
+
+          {activeView === "inventory" && (
+            <div className="text-center py-20">
+              <Package className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+              <h2 className="text-2xl font-semibold mb-2">Inventory Management</h2>
+              <p className="text-muted-foreground">Coming soon - Full inventory management interface</p>
+            </div>
+          )}
+
+          {activeView === "cameras" && (
+            <div className="text-center py-20">
+              <Camera className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+              <h2 className="text-2xl font-semibold mb-2">Camera Monitoring</h2>
+              <p className="text-muted-foreground">Coming soon - Camera management interface</p>
+            </div>
+          )}
+
+          {activeView === "employees" && (
+            <div className="text-center py-20">
+              <Users className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+              <h2 className="text-2xl font-semibold mb-2">Employee Management</h2>
+              <p className="text-muted-foreground">Coming soon - Employee management interface</p>
+            </div>
+          )}
+
+          {activeView === "reports" && (
+            <div className="text-center py-20">
+              <Activity className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+              <h2 className="text-2xl font-semibold mb-2">Reports & Analytics</h2>
+              <p className="text-muted-foreground">Coming soon - Comprehensive reporting dashboard</p>
+            </div>
+          )}
+
+          {activeView === "settings" && (
+            <div className="text-center py-20">
+              <Settings className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+              <h2 className="text-2xl font-semibold mb-2">Settings</h2>
+              <p className="text-muted-foreground">Coming soon - System configuration interface</p>
+            </div>
+          )}
         </main>
       </div>
     </div>

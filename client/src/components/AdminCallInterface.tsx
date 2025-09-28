@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { UserCircle, Phone, Clock, CheckCircle2, Settings, Crown, Shield } from "lucide-react";
+import { UserCircle, Phone, Clock, CheckCircle2, Settings, Crown, Shield, Lock } from "lucide-react";
+import { RoleGuard } from "./RoleGuard";
 
 interface Employee {
   id: string;
@@ -24,9 +25,15 @@ interface Task {
 interface AdminCallInterfaceProps {
   onCallEmployee: (employeeId: string, employeeName: string, taskId?: string, taskTitle?: string) => void;
   onCloseAdmin: () => void;
+  currentUser?: {
+    id: string;
+    name: string;
+    role: string;
+    pin?: string;
+  } | null;
 }
 
-export function AdminCallInterface({ onCallEmployee, onCloseAdmin }: AdminCallInterfaceProps) {
+export function AdminCallInterface({ onCallEmployee, onCloseAdmin, currentUser }: AdminCallInterfaceProps) {
   const [selectedEmployee, setSelectedEmployee] = useState<string>("");
   const [selectedTask, setSelectedTask] = useState<string>("");
   const [isCalling, setIsCalling] = useState(false);

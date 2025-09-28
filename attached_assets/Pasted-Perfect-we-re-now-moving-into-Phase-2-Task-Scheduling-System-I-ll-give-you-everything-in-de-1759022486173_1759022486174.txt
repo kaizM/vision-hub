@@ -1,0 +1,163 @@
+Perfect 👌 we’re now moving into **Phase 2: Task Scheduling System**. I’ll give you everything in detail:
+
+1. **Database structure** (tables, fields, constraints).
+2. **Front-end flows** (Admin, Kiosk, Personal tab).
+3. **Scheduler logic** (how tasks get created & assigned).
+4. **Events** (what sockets fire).
+5. **Acceptance test checklist** (so you know it’s complete).
+
+This will slot right after what you’ve already built in Phase 1 (kiosk, calls, cartons, QS tiles).
+
+---
+
+# 📦 Database Structure (Tasks)
+
+We’ll add **3 new tables**:
+
+### `tasks_regular`
+
+Holds repeating tasks defined by Manager.
+
+* `id` (int, PK, autoinc)
+* `title` (text, required)
+* `frequency_minutes` (int, required, default 90)
+* `active` (bool, default true)
+* `created_at` (timestamp, default now)
+
+### `tasks_special`
+
+One-off or ad-hoc tasks created in Admin.
+
+* `id` (int, PK, autoinc)
+* `title` (text, required)
+* `assigned_to` (int, FK to employees.id, nullable)
+* `status` (enum: pending, done, missed, help)
+* `created_at` (timestamp, default now)
+* `due_at` (timestamp, optional)
+
+### `task_logs`
+
+Ledger of all actual tasks created from either regular or special templates.
+
+* `id` (int, PK)
+* `source_type` (enum: regular, special)
+* `source_id` (int) — links back to tasks_regular or tasks_special
+* `assigned_to` (int, FK employees.id, nullable)
+* `status` (enum: pending, done, missed, help)
+* `title_snapshot` (text) — frozen text in case Manager edits original
+* `due_at` (timestamp)
+* `completed_at` (timestamp, nullable)
+
+👉 This way, **regular tasks** are templates, but actual execution shows up in `task_logs`.
+
+---
+
+# 🎨 Front-end Flows
+
+## **Admin → Tasks**
+
+Two tabs: **Regular** and **Special**.
+
+* **Regular Tab**
+
+  * List all repeating jobs.
+  * Fields: Title, Frequency, Active toggle.
+  * Buttons: Add, Edit, Deactivate.
+  * Example: “Mop Floors, every 180 minutes”.
+
+* **Special Tab**
+
+  * Form: free-text title + optional assignee.
+  * Button: **Send Now** → creates task in `task_logs` with status `pending`.
+  * History table of last 10 special tasks.
+
+---
+
+## **Kiosk**
+
+* **Tasks Feed Section** (new card under camera)
+
+  * Shows **Current Task** → “Next: Mop Floors (due 10:30)”
+  * Shows **Overdue Tasks** (red highlight).
+  * Clicking does nothing (read-only).
+
+---
+
+## **/me (Personal Tab)**
+
+* After PIN login → “My Tasks”
+
+  * **Due Now** section: list of tasks assigned to this employee, sorted by due time.
+  * Buttons:
+
+    * **Done** → marks status = done; logs completed_at.
+    * **Need Help** → marks status = help; sends alert.
+  * Auto-refreshes every 30s or via socket push.
+
+---
+
+# ⚙️ Scheduler Logic
+
+Runs every **minute** (local cron inside Node/Flask).
+
+1. Loop through all active `tasks_regular`.
+2. For each, check if it’s due (last emitted + frequency).
+3. If due → create new row in `task_logs`:
+
+   * status = pending
+   * due_at = now + grace (e.g., 30 min)
+   * assigned_to = next employee in rotation (round robin).
+   * emit `task:new`.
+
+👉 Example:
+
+* Task: “Check bathrooms, every 90 min”
+* Employees: Alice, Bob, Charlie
+* 10:00 → Alice gets it
+* 11:30 → Bob
+* 13:00 → Charlie
+
+---
+
+# 🔔 Events
+
+* **task:new**
+  `{ taskId, title, assignedTo, dueAt }`
+  → kiosks append alert card.
+
+* **task:done**
+  `{ taskId, employeeId }`
+  → kiosks alert “Alice completed Check bathrooms”.
+
+* **task:missed** (if dueAt + 30m passed w/o done)
+  `{ taskId }`
+  → kiosks show red alert.
+
+* **help:request**
+  `{ employeeId, taskId }`
+  → kiosks alert “Bob requested help”.
+
+---
+
+# ✅ Acceptance Checklist
+
+* [ ] Manager adds “Check Bathrooms, every 90m” in Admin.
+* [ ] Scheduler emits a task to Alice at 10:00 → shows on kiosk + `/me`.
+* [ ] Alice clicks **Done** → kiosk shows completion alert.
+* [ ] Next at 11:30 → Bob gets it.
+* [ ] If Bob ignores, 12:00 → kiosk shows “Missed task: Check Bathrooms”.
+* [ ] Manager sends Special Task “Restock Pump 4” → kiosks ring if assigned, or show “Unassigned” if not.
+* [ ] All completions and misses show up in `task_logs`.
+
+---
+
+⚡ Next Steps:
+
+1. Extend your database with these 3 new tables.
+2. Add the **Regular + Special Tasks UI** in Admin.
+3. Build the **scheduler loop** to auto-spawn tasks.
+4. Wire up socket events so kiosks + `/me` stay synced.
+
+---
+
+👉 Do you want me to **generate the actual SQL schema + sample seed script** for these 3 task tables so you can paste it directly into your repo?

@@ -8,7 +8,8 @@ import { CameraFeed } from "./CameraFeed";
 import { InventoryCard } from "./InventoryCard";
 import { AlertBanner } from "./AlertBanner";
 import { KioskOverlay } from "./KioskOverlay";
-import { Clock, Users, Package, Camera, Activity, Settings, RotateCcw } from "lucide-react";
+import { QuickShortcuts } from "./QuickShortcuts";
+import { Clock, Users, Package, Camera, Activity, Settings, RotateCcw, Zap } from "lucide-react";
 
 // Import camera images
 import storeCameraImage from '@assets/generated_images/Store_security_camera_placeholder_afab940c.png';
@@ -79,8 +80,8 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
   });
 
   // Process real data from API after queries are defined
-  const activeEmployees: Employee[] = checkIns.map((checkIn: any) => {
-    const employee = employees.find((emp: any) => emp.id === checkIn.employeeId);
+  const activeEmployees: Employee[] = (checkIns as any[]).map((checkIn: any) => {
+    const employee = (employees as any[]).find((emp: any) => emp.id === checkIn.employeeId);
     return {
       id: employee?.id || checkIn.employeeId,
       name: employee?.name || 'Unknown Employee',
@@ -89,20 +90,27 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
     };
   }).filter((emp: Employee) => emp.name !== 'Unknown Employee');
 
-  // Get current task - either from task assignments or default
-  const currentTask = taskAssignments.find((assignment: any) => 
+  // Get current task - either from task assignments or default with proper date parsing
+  const currentTask = (taskAssignments as any[]).find((assignment: any) => 
     assignment.status === 'pending' && 
     new Date(assignment.dueAt).getTime() > Date.now() - 60 * 60 * 1000 // Due within last hour
   ) || {
     id: "default-1",
     title: "Check store operations",
     category: "general",
-    dueAt: new Date(Date.now() + 30 * 60 * 1000),
+    dueAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     frequency: 30
   };
 
+  // Ensure dueAt is properly converted to Date object for safe date operations
+  const safeCurrentTask = {
+    ...currentTask,
+    dueAt: new Date(currentTask.dueAt),
+    frequency: currentTask.frequency || 30
+  };
+
   // Process recent alerts from events
-  const recentAlerts = events
+  const recentAlerts = (events as any[])
     .filter((event: any) => 
       ['inventory:low', 'employee:checkin', 'task:overdue'].includes(event.type) &&
       Date.now() - new Date(event.ts).getTime() < 2 * 60 * 60 * 1000 // Last 2 hours
@@ -114,12 +122,12 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
       
       return {
         id: event.id,
-        type: alertType as const,
+        type: alertType as "error" | "warning" | "info" | "success",
         title: event.type === 'employee:checkin' ? 'Employee Check-in' :
                event.type === 'inventory:low' ? 'Low Inventory' : 'Task Alert',
         message: JSON.stringify(event.detail).replace(/[{}\"]/g, ''),
         timestamp: new Date(event.ts),
-        priority: (event.type === 'task:overdue' ? 'high' : 'medium') as const,
+        priority: (event.type === 'task:overdue' ? 'high' : 'medium') as "low" | "medium" | "high",
         dismissible: true
       };
     });
@@ -150,7 +158,7 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
   ];
 
   // Critical inventory items (below threshold) with date conversion
-  const criticalInventory = inventory
+  const criticalInventory = (inventory as any[])
     .filter((item: any) => item.count <= item.minThreshold)
     .map((item: any) => ({
       ...item,
@@ -221,9 +229,9 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
   };
 
   const getNextTaskTime = () => {
-    const nextRotation = new Date(currentTask.dueAt.getTime() + currentTask.frequency * 60 * 1000);
+    const nextRotation = new Date(safeCurrentTask.dueAt.getTime() + safeCurrentTask.frequency * 60 * 1000);
     const minutesUntil = Math.round((nextRotation.getTime() - Date.now()) / 60000);
-    return `Next task in ${minutesUntil}m`;
+    return minutesUntil > 0 ? `${minutesUntil}m` : "Now";
   };
 
   return (
@@ -298,26 +306,56 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
           </div>
         </div>
 
-        {/* Current Task Display */}
+        {/* Enhanced Current Task Display with Actions */}
         <Card className="border-2 border-primary/20 bg-primary/5">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center space-x-2 text-xl">
-              <Activity className="h-6 w-6" />
-              <span>Current Rotating Task</span>
-              <Badge variant="outline">{getNextTaskTime()}</Badge>
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 rounded-full bg-primary/10">
+                  <RotateCcw className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <span className="text-xl">Current Rotating Task</span>
+                  <p className="text-sm text-muted-foreground font-normal">
+                    Rotates every {safeCurrentTask.frequency} minutes
+                  </p>
+                </div>
+              </div>
+              <Badge variant="outline" className="bg-background">
+                Due in {getNextTaskTime()}
+              </Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-2xl font-semibold">{currentTask.title}</h3>
-                <p className="text-muted-foreground mt-1">
-                  Category: {currentTask.category.replace('_', ' ')} • Due: {currentTask.dueAt.toLocaleTimeString()}
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between p-4 rounded-lg bg-background border">
+              <div className="space-y-1">
+                <h3 className="font-semibold text-lg">{safeCurrentTask.title}</h3>
+                <p className="text-sm text-muted-foreground">
+                  Category: {safeCurrentTask.category?.replace('_', ' ') || 'General'} • Due: {safeCurrentTask.dueAt.toLocaleTimeString()}
                 </p>
               </div>
-              <Badge variant="secondary" className="text-lg px-4 py-2">
-                Every {currentTask.frequency}m
-              </Badge>
+              <div className="flex space-x-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => console.log(`Marking task ${safeCurrentTask.id} as complete`)}
+                  data-testid="button-complete-task"
+                >
+                  Complete
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => console.log(`Skipping task ${safeCurrentTask.id}`)}
+                  data-testid="button-skip-task"
+                >
+                  Skip
+                </Button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Next rotation: {new Date(safeCurrentTask.dueAt.getTime() + safeCurrentTask.frequency * 60 * 1000).toLocaleTimeString()}</span>
+              <span>Frequency: {safeCurrentTask.frequency}m</span>
             </div>
           </CardContent>
         </Card>
@@ -358,8 +396,16 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
             </div>
           </div>
 
-          {/* Right Column - Inventory & Stats */}
+          {/* Right Column - Quick Shortcuts & Inventory */}
           <div className="space-y-6">
+            
+            {/* Quick Shortcuts Panel */}
+            <QuickShortcuts 
+              maxVisible={6}
+              layout="grid"
+              showHeader={true}
+            />
+            
             {/* Critical Inventory */}
             {criticalInventory.length > 0 && (
               <div>
@@ -369,7 +415,7 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
                   <Badge variant="destructive">{criticalInventory.length} items</Badge>
                 </h2>
                 <div className="space-y-3">
-                  {criticalInventory.map(item => (
+                  {criticalInventory.map((item: any) => (
                     <InventoryCard
                       key={item.id}
                       {...item}

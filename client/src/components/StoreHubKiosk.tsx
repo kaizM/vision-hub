@@ -15,7 +15,7 @@ export function StoreHubKiosk() {
   const [showPersonalTasks, setShowPersonalTasks] = useState(false);
   const [showAdminInterface, setShowAdminInterface] = useState(false);
   const [activeCall, setActiveCall] = useState<EmployeeCall | null>(null);
-  const [isAdminMode] = useState(true); // Demo mode - in real app, this would be based on authentication
+  const [isAdminMode] = useState(false); // Remove demo mode - real authentication required
 
   const handleOpenPersonalTasks = (requirePin = false) => {
     console.log("Opening personal tasks popup", { requirePin });

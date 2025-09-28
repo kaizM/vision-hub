@@ -216,6 +216,10 @@ export const insertTaskLogSchema = createInsertSchema(taskLogs).omit({
 export const insertCartonLedgerSchema = createInsertSchema(cartonLedger).omit({
   id: true,
   timestamp: true,
+  delta: true,
+  totalAfter: true,
+}).extend({
+  amount: z.number().optional() // Allow amount field for frontend compatibility
 });
 
 // Quick shortcuts schemas
@@ -253,6 +257,17 @@ export const insertCameraSchema = createInsertSchema(cameras).omit({
   createdAt: true,
 });
 
+// Vision schemas
+export const insertBannedFaceSchema = createInsertSchema(bannedFaces).omit({
+  id: true,
+  addedAt: true,
+});
+
+export const insertBannedPlateSchema = createInsertSchema(bannedPlates).omit({
+  id: true,
+  addedAt: true,
+});
+
 // Legacy schemas (keeping for backward compatibility)
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,
@@ -277,6 +292,12 @@ export const insertInventoryLogSchema = createInsertSchema(inventoryLogs).omit({
 export type Employee = typeof employees.$inferSelect;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
 export type CheckInLog = typeof checkInLogs.$inferSelect;
+
+// Vision types
+export type BannedFace = typeof bannedFaces.$inferSelect;
+export type InsertBannedFace = z.infer<typeof insertBannedFaceSchema>;
+export type BannedPlate = typeof bannedPlates.$inferSelect;
+export type InsertBannedPlate = z.infer<typeof insertBannedPlateSchema>;
 
 // Task Scheduling System types
 export type TaskRegular = typeof tasksRegular.$inferSelect;
@@ -318,8 +339,6 @@ export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
 export type InventoryLog = typeof inventoryLogs.$inferSelect;
 export type InsertInventoryLog = z.infer<typeof insertInventoryLogSchema>;
 export type EventLog = typeof eventLogs.$inferSelect;
-export type BannedFace = typeof bannedFaces.$inferSelect;
-export type BannedPlate = typeof bannedPlates.$inferSelect;
 
 // Legacy types (keeping for backward compatibility)
 export type Task = typeof tasks.$inferSelect;

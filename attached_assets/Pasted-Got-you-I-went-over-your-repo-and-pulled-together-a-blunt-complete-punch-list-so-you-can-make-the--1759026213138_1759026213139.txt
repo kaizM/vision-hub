@@ -1,0 +1,231 @@
+Got you. I went over your repo and pulled together a blunt, complete punch-list so you can make the whole thing behave exactly like we designed (employees, admin gear with no PIN, task scheduler, temp logging, cartons, QS tiles, cameras, vision alerts—everything). Where I could load the repo, I verified what’s there; where GitHub wouldn’t render inner files for me, I still wrote the exact files/endpoints you need to add so nothing is missing.
+
+Below = **words only** (no code), organized so you can copy/paste into an issue tracker or README and just implement line-by-line.
+
+---
+
+# 0) What’s currently in the repo (visible at top level)
+
+* Repo exists and is public: **kaizM/vision-hub**. I can see **client/**, **server/**, **shared/**, plus root configs (package.json, tsconfig, vite, tailwind, drizzle config, etc.). That means you’ve scaffolded a Vite/TS client + Node server + shared types. (I couldn’t open the inner files because GitHub UI threw an “Uh oh” page for me, but the folders are definitely there.) ([GitHub][1])
+
+> Bottom line: structure is there; we now have to wire **every feature** we discussed: Admin gear (no PIN), Employees CRUD, Tasks (regular/special) + scheduler, Kiosk overlays, `/me` flows, Temperature, Cartons, Shortcuts, Cameras page, Vision alert foundation, Reports, Settings, Backups.
+
+---
+
+# 1) Immediate gaps vs. what you asked for
+
+* **Admin gear (top-right, no PIN)**: not guaranteed yet → add a persistent header with a gear icon that always opens **/admin** with **no PIN**. (Later you can re-enable PIN with a toggle.)
+* **Employees**: you said you can’t add different employees → add Employees CRUD (name, role, PIN).
+* **Tasks system**: needs Regular + Special + Task Logs + 1-minute scheduler + events.
+* **Kiosk**: needs alerts feed, call overlays (Open Task + Mute 60s), camera panel (simulated), “Reopen My Tasks” button.
+* **`/me`**: needs PIN screen, Due Now/Next, Done/Help, 2-minute auto-close.
+* **Temperature**: equipment list, due prompts, entry modal, out-of-range alerts, missed logic, CSV export.
+* **Carton inventory**: current total, Add/Remove/Set/Reset, Undo Last, CSV export.
+* **Shortcuts (QS)**: tiles + optional domain whitelist.
+* **Cameras**: simple settings page (Name/RTSP/Enabled) + simulated preview until RTSP→HLS is wired.
+* **Vision foundation**: banned faces/plates admin pages + pending review alerts (manager confirm to show generic red banner).
+* **Reports & Backups**: daily CSV/HTML, weekly trends; local backup/restore.
+  (Items above are required to match everything you asked for.)
+
+---
+
+# 2) File-by-file plan (create/modify exactly these)
+
+> If your file names differ, keep your structure but match the **intent** below 1:1.
+
+## Client (React/Vite/TS)
+
+**`client/src/AppHeader.tsx`**
+
+* **Always rendered** at top.
+* **Left:** Store name (e.g., Lemur Express).
+* **Center (optional):** link to QS tiles page.
+* **Right:** **Gear icon**.
+
+  * **On click:** navigate to **/admin** **without PIN**.
+  * **NOTE:** Admin PIN can be re-enabled via “Require PIN for Admin” in settings later.
+
+**Pages**
+
+* `client/src/pages/KioskPage.tsx`
+
+  * Sections: **Current Task**, **Camera Panel** (shows **“Simulated Stream”** text until feed arrives), **Alerts Feed**.
+  * **Call Overlay** (modal): shows “{FirstName}, please enter your PIN”, buttons **Open Task** (opens `/me?employeeId=…` in **new tab**) and **Mute 60s** (local chime only). Cycles overlays every 8s if multiple. Rings every 10s; TTS name up to 3 times.
+  * Button “**Reopen My Tasks**” → open `/me` in a new tab; kiosk stays.
+
+* `client/src/pages/MePage.tsx`
+
+  * **Step 1:** PIN → Continue; error if invalid.
+  * **Step 2:** **My Tasks** with **Due Now** and **Next**. Per task: **Done** / **Need Help**.
+  * **Auto-close after 2 minutes** inactive with 10s countdown.
+  * If URL has `?temp=equipmentId`, open **Enter Temperature** modal after PIN.
+
+* `client/src/pages/AdminPage.tsx` (tabs)
+
+  1. **Dashboard**: Call Employee (select employee + optional task title). Active Alerts list (Acknowledge/Re-call).
+  2. **Employees**: table + **Add/Edit/Deactivate**, unique numeric PINs.
+  3. **Tasks**:
+
+     * **Regular tab**: Title, Frequency (minutes), Active toggle.
+     * **Special tab**: Free text, optional assignee, optional “Due in minutes”, **Send Now**.
+  4. **Messages**: Broadcast and Direct.
+  5. **Temperature**: Equipment list (Name, Min°F, Max°F, Interval hours, Active). List of due items/readings. **Trigger Prompt Now**. **Export CSV**.
+  6. **Backstock**: Current Total; Adjust form (Employee, Action Add/Remove/Set/Reset, Amount, Note). **Apply**, **Undo Last**, **Export CSV**.
+  7. **Shortcuts**: QS tiles (Name, URL, Icon/Photo, Category, Visible), reorder via drag; optional domain whitelist.
+  8. **Reports**: Daily CSV/HTML; weekly trends.
+  9. **Settings**: Local mode (display only), **Require PIN for Admin (toggle)** default **OFF**, Audio (chime seconds, TTS on/off, repeats), `/me` auto-close minutes, default task frequency, default temp interval, camera list, whitelist, Backups (Create/Restore), Logout.
+
+* `client/src/pages/ShortcutsPage.tsx` (optional public view to click tiles)
+
+* `client/src/pages/ReportsPage.tsx` (if not inside Admin)
+
+* `client/src/pages/SettingsPage.tsx` (if not inside Admin)
+
+* `client/src/components/AlertsFeed.tsx`, `TaskCard.tsx`, `CameraSim.tsx`, `TempEntryModal.tsx`, `CartonAdjustForm.tsx` (basic components)
+
+**Sockets/State**
+
+* `client/src/lib/socket.ts` → connect to local server; subscribe to:
+  `call:employee`, `call:ack`, `task:new`, `task:done`, `task:missed`, `help:request`, `message:broadcast`, `message:direct`, `temp:due`, `temp:missed`, `temp:alert`, `inventory:carton_apply`, `inventory:carton_undo`, `vision:face_alert`, `vision:plate_alert`, `vision:alert_confirmed`.
+* `client/src/store/uiStore.ts` → overlay queue, mute flags, alerts list, mappings.
+
+**Routes**
+
+* `client/src/main.tsx` (or App.tsx): add routes `/kiosk`, `/me`, `/admin`, `/admin/reports`, `/admin/settings`.
+
+(Top-level structure confirmed; inner files need implementing. ([GitHub][1]))
+
+---
+
+## Server (Node/Express/TS)
+
+**DB (SQLite via better-sqlite3 or Drizzle)**
+
+* Tables to create (names/columns fixed):
+
+  * `employees` (id, name, role, pin_hash, active, last_checkin_at)
+  * `tasks_regular` (id, title, frequency_minutes, active, created_at)
+  * `tasks_special` (id, title, assigned_to, status, created_at, due_at)
+  * `task_logs` (id, source_type, source_id, assigned_to, status, title_snapshot, created_at, due_at, completed_at)
+  * `equipment` (id, name, min_temp, max_temp, interval_hours, active)
+  * `temp_readings` (id, equipment_id, value_f, taken_by, taken_at, status)
+  * `inventory_items` (id, name, total) — seed with “Cigarette Cartons”, total=0
+  * `inventory_logs` (id, item_id, ts, employee_name, action, delta, total_after, note)
+  * `shortcuts` (id, name, url, icon, category, visible, sort_order)
+  * `cameras` (id, name, rtsp_url, enabled)
+  * `vision_banned_faces` (id, label, file_path, created_at)
+  * `vision_banned_plates` (id, plate_text, created_at)
+  * `events` (id, type, detail_json, created_at)
+
+**Server entry**
+
+* `server/src/index.ts`: start Express + Socket.IO; static for client build. Rooms: join kiosks to `store:kiosk`.
+
+**Scheduler loop (every 60s)**
+
+* `server/src/scheduler.ts`:
+
+  * For each active `tasks_regular`: if due (never spawned or last_spawn + frequency ≤ now), create `task_logs` with `status=pending`, `due_at = now + 30m`. Assign **round-robin** among active non-manager employees. Emit `task:new`.
+  * Mark pending logs **missed** when `now > due_at`; emit `task:missed`.
+  * (Optional) temperature due generator can live here or in a separate loop.
+
+**REST endpoints**
+
+* Employees: list/add/edit/deactivate, check PIN.
+* Tasks:
+
+  * Regular: list/add/edit/toggle.
+  * Special: POST **/api/tasks/special** (title, assignedTo?, dueMinutes?), creates `tasks_special` + a `task_log` immediately; if assigned → emit `task:new` + `call:employee`.
+  * Logs: mark **done** (`/api/tasks/logs/:id/done`), **help**, fetch by employee.
+* Calls & Alerts:
+
+  * Call Employee (`/api/call`): emit `call:employee`.
+  * Acknowledge (`/api/call/ack`): emit `call:ack`.
+* Messages: broadcast, direct.
+* Temperature: equipment CRUD, due list, CSV export, reading POST (value_f) → compute **ok/high/low**, emit `temp:alert` when outside range; create `temp:missed` when >30m late; escalate at 60m.
+* Cartons: current total GET; adjust POST (action, amount, employee_name, note) → write `inventory_logs`, update total, emit `inventory:carton_apply`; **Undo Last** endpoint → new log that reverses last row + emit `inventory:carton_undo`.
+* Shortcuts: CRUD + reorder + optional whitelist list.
+* Cameras: CRUD (Name, RTSP, Enabled).
+* Vision (foundation): banned faces CRUD (store files/labels); banned plates CRUD. Alerts endpoint to mark **confirm / acknowledge / false positive**; on confirm, emit `vision:alert_confirmed` (generic red banner).
+* Reports: daily CSV/HTML; weekly trends.
+* Settings: get/save (chime interval, TTS on/off, repeats, `/me` auto-close minutes, defaults, whitelist, camera list, **Require PIN for Admin** toggle).
+* Backups: create zip, restore zip (double confirm).
+
+**Socket events (server emits)**
+
+* `call:employee`, `call:ack`, `task:new`, `task:done`, `task:missed`, `help:request`, `message:broadcast`, `message:direct`, `temp:due`, `temp:missed`, `temp:alert`, `inventory:carton_apply`, `inventory:carton_undo`, `vision:face_alert`, `vision:plate_alert`, `vision:alert_confirmed`.
+
+(Repo has a `server/` folder, so you’ll drop these in the usual Express structure. ([GitHub][2]))
+
+---
+
+## Shared
+
+* `shared/types.ts`: define all DTOs and enums used by client/server (TaskStatus, EventType, Roles, etc.). (Repo shows a `shared/` folder already. ([GitHub][3]))
+
+---
+
+# 3) Exact button behaviors (so there’s zero ambiguity)
+
+**Gear (top-right):** open **/admin** immediately (no PIN). Later, if **Require PIN for Admin** is turned ON, prompt for **786110** before entering Admin.
+
+**Admin → Dashboard → Call Employee → Call Now:** emits `call:employee` to kiosks; overlay appears; TTS says the person’s first name (max 3 times); chime every 10s.
+
+**Kiosk → Call Overlay → Open Task:** opens `/me?employeeId=…` in a new tab; on successful PIN, server emits `call:ack` which closes overlays on all kiosks.
+
+**Kiosk → Call Overlay → Mute 60s:** silences **only that kiosk** for 60s (overlay stays visible). If multiple overlays exist, kiosk rotates every 8s.
+
+**/me → Done:** marks the task log as `done`, sets `completed_at`, emits `task:done`, removes from Due Now.
+
+**/me → Need Help:** sets `help`, emits `help:request` (kiosk/admin notice).
+
+**Admin → Tasks → Regular → Add:** adds a template (title, frequency). Scheduler auto-spawns logs in round-robin and sets `due_at = now + 30m`.
+
+**Admin → Tasks → Special → Send Now:** creates a log immediately; if **Assignee selected**, also rings kiosks (`call:employee`).
+
+**Admin → Temperature → Add Equipment:** Name, Min°F, Max°F, Interval hours. System schedules due; kiosk shows `temp:due` prompt when due; if no entry after 30m → `temp:missed`; if out-of-range entry → `temp:alert`.
+
+**Admin → Backstock → Apply:** validates action; writes ledger row with Δ and Total After; emits `inventory:carton_apply`. **Undo Last** reverts last row exactly and emits `inventory:carton_undo`.
+
+**Admin → Shortcuts → Add:** tile appears on kiosk; clicking opens URL in a **new tab**; kiosk remains.
+
+**Admin → Vision → Confirm Alert:** kiosks show **generic** red banner “Manager alert: attention required at {camera}” (never read names aloud).
+
+**Admin → Settings → Create Backup/Restore:** local zip create/restore; restore requires double confirm.
+
+---
+
+# 4) Acceptance tests (what to check when you say “make sure”)
+
+1. **Admin gear** opens Admin with no PIN.
+2. **Employees** can be added/edited/deactivated (unique numeric PIN).
+3. **Regular tasks** spawn on schedule and rotate assignment; **Special tasks** ring when assigned.
+4. **Kiosk** shows overlays + alerts; **/me** shows Due Now/Next; **Done/Help** works; **auto-close** works.
+5. **Temperature** dues prompt; entries mark ok/high/low; missed after 30m; CSV export works.
+6. **Cartons**: Add/Remove/Set/Reset; cannot drop below 0; **Undo Last** works; CSV export works.
+7. **QS tiles** appear and open in new tab; whitelist blocks non-allowed domains (if enabled).
+8. **Cameras** page saves Name/RTSP/Enabled; Kiosk shows “Simulated Stream” until real feed.
+9. **Vision** banned faces/plates can be stored; alerts show **Pending Review**; **Confirm** shows generic red banner.
+10. **Reports** daily CSV/HTML; **Backups** create/restore locally.
+
+---
+
+# 5) Anything else you asked for (summarized)
+
+* **Everything local**: no Replit/cloud storage; one local SQLite DB + local files; TTS via system voice; all static served from the store PC.
+* **Admin is the “host”**: you can change **everything** from Admin—no hidden config files.
+* **All employee flows** exist: different employees, PINs, assignments, messages, kiosk alerts.
+* **Cameras/vision are foundations now**: preview simulated until you wire RTSP→HLS; face/plate alerts require **Manager review** before store-wide alert.
+
+---
+
+# 6) What I need from you (1 minute)
+
+* Confirm your actual **client entry** (e.g., `client/src/main.tsx`) and **server entry** (e.g., `server/src/index.ts`).
+* If you want, drop a quick **README.md** with the key file paths. Then I can map each bullet above to the exact file names you’re using (line-by-line), but you already have the complete to-do list here.
+
+If you follow the list above in order, you’ll have **every single thing we discussed** running the way you want—**admin gear top-right, no PIN**, full employee & scheduling system, temp/cartons/shortcuts/cameras/vision/reporting, all local.
+
+[1]: https://github.com/kaizM/vision-hub "GitHub - kaizM/vision-hub"
+[2]: https://github.com/kaizM/vision-hub/tree/main/server "vision-hub/server at main · kaizM/vision-hub · GitHub"
+[3]: https://github.com/kaizM/vision-hub/tree/main/shared "vision-hub/shared at main · kaizM/vision-hub · GitHub"

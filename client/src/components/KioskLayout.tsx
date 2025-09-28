@@ -9,7 +9,15 @@ import { InventoryCard } from "./InventoryCard";
 import { AlertBanner } from "./AlertBanner";
 import { KioskOverlay } from "./KioskOverlay";
 import { QuickShortcuts } from "./QuickShortcuts";
-import { Clock, Users, Package, Camera, Activity, Settings, RotateCcw, Zap } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Clock, Users, Package, Camera, Activity, Settings, RotateCcw, Zap, Thermometer, Box } from "lucide-react";
 
 // Import camera images
 import storeCameraImage from '@assets/generated_images/Store_security_camera_placeholder_afab940c.png';
@@ -42,6 +50,88 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [activeCall, setActiveCall] = useState<EmployeeCall | null>(null);
   const [callQueue, setCallQueue] = useState<EmployeeCall[]>([]);
+  const [showCigaretteInventory, setShowCigaretteInventory] = useState(false);
+  const [showEmployeeCalling, setShowEmployeeCalling] = useState(false);
+  const [showCartonManagement, setShowCartonManagement] = useState<'add' | 'remove' | 'set' | 'reset' | null>(null);
+  const [cartonAmount, setCartonAmount] = useState('');
+  const [cartonEmployee, setCartonEmployee] = useState('');
+  const [cartonNote, setCartonNote] = useState('');
+
+  // Voice announcement function
+  const speakAnnouncement = (text: string) => {
+    if ('speechSynthesis' in window) {
+      // Stop any ongoing speech
+      window.speechSynthesis.cancel();
+      
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.9;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      
+      window.speechSynthesis.speak(utterance);
+      
+      // Play bell sound effect (simulate with beep)
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = 800; // Bell-like frequency
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    } else {
+      console.warn('Speech synthesis not supported');
+      toast({
+        title: "Voice Announcement",
+        description: text,
+      });
+    }
+  };
+
+  // Carton adjustment mutation
+  const adjustCartonsMutation = useMutation({
+    mutationFn: async (params: { action: string; amount?: number; employee: string; note?: string }) => {
+      const { action, amount, employee, note } = params;
+      
+      let delta = 0;
+      if (action === 'add') delta = amount || 0;
+      else if (action === 'remove') delta = -(amount || 0);
+      else if (action === 'set') delta = (amount || 0) - cartonTotal.total;
+      else if (action === 'reset') delta = -cartonTotal.total;
+      
+      return apiRequest("POST", "/api/cartons/adjust", {
+        delta,
+        employee,
+        action,
+        amount: Math.abs(amount || 0), // Ensure amount is always provided
+        note: note || `${action} operation by ${employee}`
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cartons/total"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cartons/ledger"] });
+      setShowCartonManagement(null);
+      setCartonAmount('');
+      setCartonEmployee('');
+      setCartonNote('');
+      toast({
+        title: "Success",
+        description: "Carton inventory updated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update carton inventory",
+        variant: "destructive",
+      });
+    },
+  });
 
 
   // Update time every second
@@ -79,6 +169,28 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
     refetchInterval: 5000 // Refresh every 5 seconds
   });
 
+  // Fetch carton inventory total and recent entries
+  const { data: cartonTotal = { total: 0 } } = useQuery<{ total: number }>({
+    queryKey: ['/api/cartons/total'],
+    refetchInterval: 30000 // Refresh every 30 seconds
+  });
+
+  const { data: cartonLedger = [] } = useQuery({
+    queryKey: ['/api/cartons/ledger'],
+    refetchInterval: 30000 // Refresh every 30 seconds
+  });
+
+  // Fetch temperature equipment and readings
+  const { data: temperatureEquipment = [] } = useQuery({
+    queryKey: ['/api/temperature-equipment'],
+    refetchInterval: 60000 // Refresh every minute
+  });
+
+  const { data: temperatureReadings = [] } = useQuery({
+    queryKey: ['/api/temperature-readings'],
+    refetchInterval: 30000 // Refresh every 30 seconds
+  });
+
   // Process real data from API after queries are defined
   const activeEmployees: Employee[] = (checkIns as any[]).map((checkIn: any) => {
     const employee = (employees as any[]).find((emp: any) => emp.id === checkIn.employeeId);
@@ -108,6 +220,25 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
     dueAt: new Date(currentTask.dueAt),
     frequency: currentTask.frequency || 30
   };
+
+  // Process temperature data
+  const temperatureAlerts = (temperatureEquipment as any[]).map((equipment: any) => {
+    const latestReading = (temperatureReadings as any[])
+      .filter((reading: any) => reading.equipmentId === equipment.id)
+      .sort((a: any, b: any) => new Date(b.takenAt).getTime() - new Date(a.takenAt).getTime())[0];
+    
+    return {
+      ...equipment,
+      currentTemp: latestReading?.value || null,
+      status: latestReading?.status || 'unknown',
+      lastReading: latestReading?.takenAt ? new Date(latestReading.takenAt) : null
+    };
+  });
+
+  // Get recent carton entries for display
+  const recentCartonEntries = (cartonLedger as any[])
+    .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 3);
 
   // Process recent alerts from events
   const recentAlerts = (events as any[])
@@ -282,15 +413,7 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
             
             {isAdminMode && (
               <>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  onClick={simulateEmployeeCall}
-                  data-testid="button-demo-call"
-                  className="text-lg px-6 py-3"
-                >
-                  Demo Call Employee
-                </Button>
+                {/* Demo Call Employee button removed - employee calls now handled automatically from admin interface */}
                 <Button
                   size="lg"
                   variant="outline"
@@ -406,22 +529,95 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
               showHeader={true}
             />
             
-            {/* Critical Inventory */}
-            {criticalInventory.length > 0 && (
+            {/* Cigarette Inventory - Full Management */}
+            <div>
+              <h2 className="text-xl font-semibold mb-4 flex items-center space-x-2">
+                <Box className="h-5 w-5" />
+                <span>Cigarette Inventory</span>
+                <Badge variant="outline">{cartonTotal.total} cartons</Badge>
+              </h2>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Current Total: {cartonTotal.total} Cartons</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button 
+                      variant="default"
+                      size="sm"
+                      onClick={() => setShowCigaretteInventory(true)}
+                      data-testid="button-manage-cigarettes"
+                    >
+                      <Package className="h-4 w-4 mr-2" />
+                      Manage Inventory
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowEmployeeCalling(true)}
+                      data-testid="button-call-employees"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Call Employees
+                    </Button>
+                  </div>
+                  
+                  {recentCartonEntries.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium text-muted-foreground">Recent Updates:</h4>
+                      {recentCartonEntries.map((entry: any) => (
+                        <div key={entry.id} className="flex items-center justify-between text-sm p-2 bg-muted/50 rounded">
+                          <span className="font-medium">{entry.action}</span>
+                          <span className={entry.delta > 0 ? "text-green-600" : "text-red-600"}>
+                            {entry.delta > 0 ? '+' : ''}{entry.delta}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Temperature Monitoring */}
+            {temperatureAlerts.length > 0 && (
               <div>
                 <h2 className="text-xl font-semibold mb-4 flex items-center space-x-2">
-                  <Package className="h-5 w-5" />
-                  <span>Critical Inventory</span>
-                  <Badge variant="destructive">{criticalInventory.length} items</Badge>
+                  <Thermometer className="h-5 w-5" />
+                  <span>Temperature Status</span>
+                  <Badge variant={temperatureAlerts.some((t: any) => t.status !== 'ok') ? "destructive" : "outline"}>
+                    {temperatureAlerts.filter((t: any) => t.status === 'ok').length}/{temperatureAlerts.length} OK
+                  </Badge>
                 </h2>
                 <div className="space-y-3">
-                  {criticalInventory.map((item: any) => (
-                    <InventoryCard
-                      key={item.id}
-                      {...item}
-                      onUpdateCount={(id, count, reason) => console.log(`Updated ${id}: ${count} (${reason})`)}
-                      onQuickCount={(id) => console.log(`Quick count ${id}`)}
-                    />
+                  {temperatureAlerts.map((temp: any) => (
+                    <Card key={temp.id} className={temp.status !== 'ok' ? "border-destructive/50" : ""}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="font-medium">{temp.name}</h4>
+                            <p className="text-sm text-muted-foreground">
+                              Range: {temp.minTemp}°F - {temp.maxTemp}°F
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <div className={`text-2xl font-bold ${
+                              temp.status === 'ok' ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              {temp.currentTemp ? `${temp.currentTemp}°F` : '--'}
+                            </div>
+                            <Badge variant={temp.status === 'ok' ? "outline" : "destructive"} className="text-xs">
+                              {temp.status.toUpperCase()}
+                            </Badge>
+                          </div>
+                        </div>
+                        {temp.lastReading && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Last reading: {temp.lastReading.toLocaleTimeString()}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
                   ))}
                 </div>
               </div>
@@ -456,6 +652,293 @@ export function KioskLayout({ onOpenPersonalTasks, onAdminAccess, isAdminMode = 
           </div>
         </div>
       </div>
+
+      {/* Cigarette Inventory Management Dialog */}
+      <Dialog open={showCigaretteInventory} onOpenChange={setShowCigaretteInventory}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cigarette Inventory Management</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-center">
+              <div className="text-3xl font-bold">{cartonTotal.total}</div>
+              <div className="text-sm text-muted-foreground">Current Cartons</div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3">
+              <Button 
+                variant="default" 
+                onClick={() => {
+                  setShowCigaretteInventory(false);
+                  setShowCartonManagement('add');
+                }}
+                data-testid="button-add-cartons"
+              >
+                + Add Cartons
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowCigaretteInventory(false);
+                  setShowCartonManagement('remove');
+                }}
+                data-testid="button-remove-cartons"
+              >
+                - Remove Cartons
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowCigaretteInventory(false);
+                  setShowCartonManagement('set');
+                }}
+                data-testid="button-set-cartons"
+              >
+                Set Total
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={() => {
+                  setShowCigaretteInventory(false);
+                  setShowCartonManagement('reset');
+                }}
+                data-testid="button-reset-cartons"
+              >
+                Reset Count
+              </Button>
+            </div>
+
+            <div className="text-center">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setShowCigaretteInventory(false)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Employee Calling Dialog */}
+      <Dialog open={showEmployeeCalling} onOpenChange={setShowEmployeeCalling}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Call Employees</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Select Employees</Label>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {activeEmployees.length > 0 ? (
+                  activeEmployees.map(employee => (
+                    <div key={employee.id} className="flex items-center justify-between p-2 border rounded">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-green-500 rounded-full" />
+                        <span className="font-medium">{employee.name}</span>
+                        <Badge variant="outline" className="text-xs">{employee.role}</Badge>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => {
+                          const announcement = `${employee.name}, please come to the front counter. ${employee.name}, please come to the front counter.`;
+                          speakAnnouncement(announcement);
+                          toast({
+                            title: "Employee Called",
+                            description: `Voice announcement sent to ${employee.name}`,
+                          });
+                        }}
+                        data-testid={`button-call-${employee.id}`}
+                      >
+                        Call
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  // Fallback to all employees when no one is checked in
+                  (employees as any[]).map((employee: any) => (
+                    <div key={employee.id} className="flex items-center justify-between p-2 border rounded">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full" />
+                        <span className="font-medium">{employee.name}</span>
+                        <Badge variant="outline" className="text-xs">{employee.role}</Badge>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => {
+                          const announcement = `${employee.name}, please come to the front counter. ${employee.name}, please come to the front counter.`;
+                          speakAnnouncement(announcement);
+                          toast({
+                            title: "Employee Called",
+                            description: `Voice announcement sent to ${employee.name}`,
+                          });
+                        }}
+                        data-testid={`button-call-${employee.id}`}
+                      >
+                        Call
+                      </Button>
+                    </div>
+                  ))
+                )}
+                
+                {activeEmployees.length === 0 && (employees as any[]).length === 0 && (
+                  <div className="text-center py-4 text-muted-foreground">
+                    No employees available
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Message</Label>
+              <Textarea 
+                placeholder="Enter work assignment or message..." 
+                rows={3}
+                value={cartonNote}
+                onChange={(e) => setCartonNote(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button 
+                className="flex-1"
+                onClick={() => {
+                  const message = cartonNote || "Please report to the front counter for a work assignment";
+                  const selectedEmployees = activeEmployees.filter(emp => emp.name); // All visible employees
+                  
+                  if (selectedEmployees.length > 0) {
+                    const announcement = `Attention all staff: ${message}. Please respond promptly.`;
+                    speakAnnouncement(announcement);
+                  }
+                  
+                  toast({
+                    title: "Announcement Sent",
+                    description: `Voice announcement sent to ${selectedEmployees.length} employees`,
+                  });
+                  setShowEmployeeCalling(false);
+                  setCartonNote('');
+                }}
+                data-testid="button-send-announcement"
+              >
+                Send Voice Announcement
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowEmployeeCalling(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Carton Management Dialog */}
+      <Dialog open={!!showCartonManagement} onOpenChange={() => setShowCartonManagement(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {showCartonManagement === 'add' && 'Add Cartons'}
+              {showCartonManagement === 'remove' && 'Remove Cartons'}
+              {showCartonManagement === 'set' && 'Set Total Cartons'}
+              {showCartonManagement === 'reset' && 'Reset Carton Count'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold">Current: {cartonTotal.total}</div>
+              <div className="text-sm text-muted-foreground">cartons in inventory</div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Employee</Label>
+              <Select value={cartonEmployee} onValueChange={setCartonEmployee}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeEmployees.length > 0 ? (
+                    activeEmployees.map((employee) => (
+                      <SelectItem key={employee.id} value={employee.name}>
+                        {employee.name} ({employee.role})
+                      </SelectItem>
+                    ))
+                  ) : (
+                    // Fallback to all employees when no one is checked in
+                    (employees as any[]).map((employee: any) => (
+                      <SelectItem key={employee.id} value={employee.name}>
+                        {employee.name} ({employee.role})
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {showCartonManagement !== 'reset' && (
+              <div className="space-y-2">
+                <Label>
+                  {showCartonManagement === 'add' && 'Cartons to Add'}
+                  {showCartonManagement === 'remove' && 'Cartons to Remove'}
+                  {showCartonManagement === 'set' && 'Set Total To'}
+                </Label>
+                <Input
+                  type="number"
+                  min="1"
+                  placeholder="Enter amount"
+                  value={cartonAmount}
+                  onChange={(e) => setCartonAmount(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Note (Optional)</Label>
+              <Textarea
+                placeholder="Add a note about this operation"
+                rows={2}
+                value={cartonNote}
+                onChange={(e) => setCartonNote(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                className="flex-1"
+                onClick={() => setShowCartonManagement(null)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="flex-1"
+                disabled={!cartonEmployee || (showCartonManagement !== 'reset' && !cartonAmount)}
+                onClick={() => {
+                  const amount = showCartonManagement === 'reset' ? 0 : parseInt(cartonAmount) || 0;
+                  console.log(`[Carton] Submitting ${showCartonManagement} operation:`, { 
+                    action: showCartonManagement, 
+                    amount, 
+                    employee: cartonEmployee, 
+                    note: cartonNote,
+                    rawAmount: cartonAmount 
+                  });
+                  adjustCartonsMutation.mutate({
+                    action: showCartonManagement!,
+                    amount,
+                    employee: cartonEmployee,
+                    note: cartonNote
+                  });
+                }}
+              >
+                {adjustCartonsMutation.isPending ? 'Processing...' : 'Confirm'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

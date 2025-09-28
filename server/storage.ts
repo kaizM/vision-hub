@@ -57,6 +57,7 @@ export interface IStorage {
   createTaskLog(taskLog: InsertTaskLog): Promise<TaskLog>;
   getTaskLogsByEmployee(employeeId: string): Promise<TaskLog[]>;
   getPendingTaskLogs(): Promise<TaskLog[]>;
+  getAllTaskLogs(): Promise<TaskLog[]>;
   updateTaskLog(id: string, updates: Partial<TaskLog>): Promise<TaskLog | undefined>;
   getOverdueTaskLogs(): Promise<TaskLog[]>;
   
@@ -145,6 +146,8 @@ export class MemStorage implements IStorage {
   private messages: Map<string, Message>;
   private settings: Map<string, Setting>;
   private cameras: Map<string, Camera>;
+  private bannedFaces: Map<string, BannedFace>;
+  private bannedPlates: Map<string, BannedPlate>;
 
   constructor() {
     this.employees = new Map();
@@ -166,6 +169,8 @@ export class MemStorage implements IStorage {
     this.messages = new Map();
     this.settings = new Map();
     this.cameras = new Map();
+    this.bannedFaces = new Map();
+    this.bannedPlates = new Map();
     
     // Initialize with demo data
     this.initializeDemoData();
@@ -346,8 +351,11 @@ export class MemStorage implements IStorage {
   async createEmployee(insertEmployee: InsertEmployee): Promise<Employee> {
     const id = randomUUID();
     const employee: Employee = { 
-      ...insertEmployee, 
       id,
+      name: insertEmployee.name,
+      pin: insertEmployee.pin,
+      role: insertEmployee.role || "employee", // Provide default for optional field
+      active: insertEmployee.active !== undefined ? insertEmployee.active : true, // Provide default
       createdAt: new Date()
     };
     this.employees.set(id, employee);
@@ -370,7 +378,13 @@ export class MemStorage implements IStorage {
   // Task methods
   async createTask(insertTask: InsertTask): Promise<Task> {
     const id = randomUUID();
-    const task: Task = { ...insertTask, id };
+    const task: Task = { 
+      id,
+      title: insertTask.title,
+      frequency: insertTask.frequency,
+      active: insertTask.active !== undefined ? insertTask.active : true,
+      category: insertTask.category || null
+    };
     this.tasks.set(id, task);
     return task;
   }
@@ -388,10 +402,14 @@ export class MemStorage implements IStorage {
   async createTaskAssignment(insertAssignment: InsertTaskAssignment): Promise<TaskAssignment> {
     const id = randomUUID();
     const assignment: TaskAssignment = {
-      ...insertAssignment,
       id,
+      taskId: insertAssignment.taskId,
+      assignedTo: insertAssignment.assignedTo || null,
+      status: insertAssignment.status || "pending",
+      dueAt: insertAssignment.dueAt,
       assignedAt: new Date(),
-      completedAt: null
+      completedAt: null,
+      notes: insertAssignment.notes || null
     };
     this.taskAssignments.set(id, assignment);
     return assignment;
@@ -519,6 +537,11 @@ export class MemStorage implements IStorage {
     return Array.from(this.taskLogs.values())
       .filter(tl => tl.status === 'pending')
       .sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime());
+  }
+
+  async getAllTaskLogs(): Promise<TaskLog[]> {
+    return Array.from(this.taskLogs.values())
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   }
 
   async updateTaskLog(id: string, updates: Partial<TaskLog>): Promise<TaskLog | undefined> {
@@ -797,6 +820,41 @@ export class MemStorage implements IStorage {
 
   async deleteCamera(id: string): Promise<boolean> {
     return this.cameras.delete(id);
+  }
+
+  // Vision management
+  async createBannedFace(insertBannedFace: InsertBannedFace): Promise<BannedFace> {
+    const id = randomUUID();
+    const bannedFace: BannedFace = { ...insertBannedFace, id, addedAt: new Date() };
+    this.bannedFaces.set(id, bannedFace);
+    return bannedFace;
+  }
+
+  async getBannedFaces(): Promise<BannedFace[]> {
+    return Array.from(this.bannedFaces.values());
+  }
+
+  async deleteBannedFace(id: string): Promise<boolean> {
+    return this.bannedFaces.delete(id);
+  }
+
+  async createBannedPlate(insertBannedPlate: InsertBannedPlate): Promise<BannedPlate> {
+    const id = randomUUID();
+    const bannedPlate: BannedPlate = { ...insertBannedPlate, id, addedAt: new Date() };
+    this.bannedPlates.set(id, bannedPlate);
+    return bannedPlate;
+  }
+
+  async getBannedPlates(): Promise<BannedPlate[]> {
+    return Array.from(this.bannedPlates.values());
+  }
+
+  async deleteBannedPlate(id: string): Promise<boolean> {
+    return this.bannedPlates.delete(id);
+  }
+
+  async getEventsByType(type: string): Promise<EventLog[]> {
+    return this.eventLogs.filter(event => event.type === type);
   }
 
   // Event logging

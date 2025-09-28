@@ -17,7 +17,7 @@ export function PinLogin({ onLogin, onManagerLogin, onError, title, error }: Pin
   const [isLoading, setIsLoading] = useState(false);
 
   const handleNumberClick = (number: string) => {
-    if (pin.length < 4) {
+    if (pin.length < 8) { // Allow up to 8 digits for flexibility
       setPin(prev => prev + number);
     }
   };
@@ -27,7 +27,7 @@ export function PinLogin({ onLogin, onManagerLogin, onError, title, error }: Pin
   };
 
   const handleLogin = async () => {
-    if (pin.length !== 4) return;
+    if (pin.length < 3 || pin.length > 8) return; // Allow 3-8 digit PINs
     
     setIsLoading(true);
     
@@ -93,16 +93,17 @@ export function PinLogin({ onLogin, onManagerLogin, onError, title, error }: Pin
               <span>Employee Check-In</span>
             </CardTitle>
             
-            {/* PIN Display */}
-            <div className="flex justify-center space-x-2">
-              {[0, 1, 2, 3].map((index) => (
-                <div
-                  key={index}
-                  className="w-4 h-4 rounded-full border-2 border-border flex items-center justify-center"
-                >
-                  {pin[index] && <div className="w-2 h-2 rounded-full bg-primary" />}
-                </div>
-              ))}
+            {/* PIN Display - Show actual digits for better visibility */}
+            <div className="flex justify-center space-x-2 mb-4">
+              <div className="min-w-[120px] p-3 bg-muted rounded-lg text-center font-mono text-xl border-2">
+                {pin.split('').map((digit, index) => (
+                  <span key={index} className="mx-1">
+                    {digit}
+                  </span>
+                )) || (
+                  <span className="text-muted-foreground">Enter PIN</span>
+                )}
+              </div>
             </div>
           </CardHeader>
 
@@ -144,7 +145,7 @@ export function PinLogin({ onLogin, onManagerLogin, onError, title, error }: Pin
                 size="lg"
                 className="h-12 text-lg font-semibold"
                 onClick={handleLogin}
-                disabled={pin.length !== 4 || isLoading}
+                disabled={pin.length < 3 || pin.length > 8 || isLoading}
                 data-testid="button-pin-login"
               >
                 {isLoading ? "Checking..." : "Login"}

@@ -40,9 +40,12 @@ export function PersonalTasksPopup({ onClose, autoCloseMinutes = 2 }: PersonalTa
     queryKey: ['personal-tasks', currentUser?.id],
     queryFn: async () => {
       if (!currentUser?.id) return [];
+      console.log(`[PersonalTasks] Fetching tasks for employee ${currentUser.id}`);
       const response = await fetch(`/api/employees/${currentUser.id}/tasks`);
       if (!response.ok) throw new Error('Failed to fetch personal tasks');
-      return response.json();
+      const data = await response.json();
+      console.log(`[PersonalTasks] Retrieved ${data.length} tasks for employee ${currentUser.id}:`, data);
+      return data;
     },
     enabled: !!currentUser?.id,
     refetchInterval: 10000 // Refresh every 10 seconds

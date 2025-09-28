@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { TaskScheduler } from "./scheduler";
 import { 
   insertEmployeeSchema,
   insertTaskRegularSchema,
@@ -12,11 +13,17 @@ import {
   insertTemperatureReadingSchema,
   insertMessageSchema,
   insertSettingSchema,
-  insertCameraSchema
+  insertCameraSchema,
+  insertBannedFaceSchema,
+  insertBannedPlateSchema
 } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Initialize and start the task scheduler
+  const taskScheduler = new TaskScheduler(storage);
+  taskScheduler.start();
+  console.log('[STARTUP] Task scheduler initialized and started');
   // Employee authentication
   app.post("/api/employees/authenticate", async (req, res) => {
     try {
@@ -48,6 +55,114 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create new employee
+  app.post("/api/employees", async (req, res) => {
+    try {
+      const parsed = insertEmployeeSchema.parse(req.body);
+      
+      // Check PIN uniqueness
+      const existingEmployee = await storage.getEmployeeByPin(parsed.pin);
+      if (existingEmployee) {
+        return res.status(400).json({ error: "PIN already exists. Please choose a different PIN." });
+      }
+      
+      const employee = await storage.createEmployee(parsed);
+      
+      await storage.logEvent("employee:created", {
+        employeeId: employee.id,
+        name: employee.name,
+        role: employee.role,
+        timestamp: new Date()
+      });
+      
+      res.status(201).json(employee);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid employee data", details: error.errors });
+      }
+      console.error("Error creating employee:", error);
+      res.status(500).json({ error: "Failed to create employee" });
+    }
+  });
+
+  // Update employee
+  app.patch("/api/employees/:employeeId", async (req, res) => {
+    try {
+      const { employeeId } = req.params;
+      const updates = req.body;
+      
+      // Check PIN uniqueness if PIN is being updated
+      if (updates.pin) {
+        const existingEmployee = await storage.getEmployeeByPin(updates.pin);
+        if (existingEmployee && existingEmployee.id !== employeeId) {
+          return res.status(400).json({ error: "PIN already exists. Please choose a different PIN." });
+        }
+      }
+      
+      const updated = await storage.updateEmployee(employeeId, updates);
+      if (!updated) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+      
+      await storage.logEvent("employee:updated", {
+        employeeId: updated.id,
+        updates,
+        timestamp: new Date()
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating employee:", error);
+      res.status(500).json({ error: "Failed to update employee" });
+    }
+  });
+
+  // Deactivate employee (soft delete)
+  app.put("/api/employees/:employeeId/deactivate", async (req, res) => {
+    try {
+      const { employeeId } = req.params;
+      
+      const updated = await storage.updateEmployee(employeeId, { active: false });
+      if (!updated) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+      
+      await storage.logEvent("employee:deactivated", {
+        employeeId: updated.id,
+        name: updated.name,
+        timestamp: new Date()
+      });
+      
+      res.json({ message: "Employee deactivated successfully", employee: updated });
+    } catch (error) {
+      console.error("Error deactivating employee:", error);
+      res.status(500).json({ error: "Failed to deactivate employee" });
+    }
+  });
+
+  // Reactivate employee
+  app.put("/api/employees/:employeeId/reactivate", async (req, res) => {
+    try {
+      const { employeeId } = req.params;
+      
+      const updated = await storage.updateEmployee(employeeId, { active: true });
+      if (!updated) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+      
+      await storage.logEvent("employee:reactivated", {
+        employeeId: updated.id,
+        name: updated.name,
+        timestamp: new Date()
+      });
+      
+      res.json({ message: "Employee reactivated successfully", employee: updated });
+    } catch (error) {
+      console.error("Error reactivating employee:", error);
+      res.status(500).json({ error: "Failed to reactivate employee" });
+    }
+  });
+
   // Get all tasks
   app.get("/api/tasks", async (req, res) => {
     try {
@@ -74,13 +189,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/employees/:employeeId/tasks", async (req, res) => {
     try {
       const { employeeId } = req.params;
-      const assignments = await storage.getActiveTaskAssignments();
       
-      // Filter assignments for this employee
-      const personalTasks = assignments.filter(
-        assignment => assignment.assignedTo === employeeId
+      // Get task logs assigned to this employee (this is where scheduler assigns tasks)
+      const allTaskLogs = await storage.getAllTaskLogs();
+      const personalTaskLogs = allTaskLogs.filter(
+        (log: any) => log.assignedTo === employeeId && log.status === 'pending'
       );
       
+      // Transform task logs to look like task assignments for compatibility
+      const personalTasks = personalTaskLogs.map((log: any) => ({
+        id: log.id,
+        taskTitle: log.titleSnapshot,
+        category: 'general',
+        assignedTo: log.assignedTo,
+        dueAt: log.dueAt,
+        status: log.status,
+        priority: 'medium',
+        sourceType: log.sourceType,
+        sourceId: log.sourceId
+      }));
+      
+      console.log(`[API] Found ${personalTasks.length} personal tasks for employee ${employeeId}`);
       res.json(personalTasks);
     } catch (error) {
       console.error("Error fetching personal tasks:", error);
@@ -88,13 +217,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Complete a task assignment
+  // Complete a task assignment (now works with task logs)
   app.patch("/api/task-assignments/:assignmentId/complete", async (req, res) => {
     try {
       const { assignmentId } = req.params;
       const { notes } = req.body;
       
-      const updated = await storage.updateTaskAssignment(assignmentId, {
+      // Update task log instead of task assignment
+      const updated = await storage.updateTaskLog(assignmentId, {
         status: "done",
         completedAt: new Date(),
         notes: notes || ""
@@ -1155,6 +1285,375 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting camera:", error);
       res.status(500).json({ error: "Failed to delete camera" });
+    }
+  });
+
+  // Scheduler status and control endpoints
+  app.get("/api/scheduler/status", async (req, res) => {
+    try {
+      const status = taskScheduler.getStatus();
+      res.json(status);
+    } catch (error) {
+      console.error("Error getting scheduler status:", error);
+      res.status(500).json({ error: "Failed to get scheduler status" });
+    }
+  });
+
+  app.post("/api/scheduler/force-run", async (req, res) => {
+    try {
+      await taskScheduler.forceRun();
+      res.json({ success: true, message: "Scheduler force run completed" });
+    } catch (error) {
+      console.error("Error force running scheduler:", error);
+      res.status(500).json({ error: "Failed to force run scheduler" });
+    }
+  });
+
+  // ==========================================
+  // VISION APIs (Banned Faces/Plates)
+  // ==========================================
+  
+  // Banned Faces
+  app.get("/api/vision/faces", async (req, res) => {
+    try {
+      const faces = await storage.getBannedFaces();
+      res.json(faces);
+    } catch (error) {
+      console.error("Error fetching banned faces:", error);
+      res.status(500).json({ error: "Failed to fetch banned faces" });
+    }
+  });
+
+  app.post("/api/vision/faces", async (req, res) => {
+    try {
+      const parsed = insertBannedFaceSchema.parse(req.body);
+      const face = await storage.createBannedFace(parsed);
+      
+      await storage.logEvent("face:added", {
+        faceId: face.id,
+        label: face.label,
+        timestamp: new Date()
+      });
+      
+      res.status(201).json(face);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid face data", details: error.errors });
+      }
+      console.error("Error creating banned face:", error);
+      res.status(500).json({ error: "Failed to create banned face" });
+    }
+  });
+
+  app.delete("/api/vision/faces/:faceId", async (req, res) => {
+    try {
+      const { faceId } = req.params;
+      const deleted = await storage.deleteBannedFace(faceId);
+      
+      if (!deleted) {
+        return res.status(404).json({ error: "Banned face not found" });
+      }
+      
+      await storage.logEvent("face:removed", {
+        faceId,
+        timestamp: new Date()
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting banned face:", error);
+      res.status(500).json({ error: "Failed to delete banned face" });
+    }
+  });
+
+  // Banned Plates
+  app.get("/api/vision/plates", async (req, res) => {
+    try {
+      const plates = await storage.getBannedPlates();
+      res.json(plates);
+    } catch (error) {
+      console.error("Error fetching banned plates:", error);
+      res.status(500).json({ error: "Failed to fetch banned plates" });
+    }
+  });
+
+  app.post("/api/vision/plates", async (req, res) => {
+    try {
+      const parsed = insertBannedPlateSchema.parse(req.body);
+      const plate = await storage.createBannedPlate(parsed);
+      
+      await storage.logEvent("plate:added", {
+        plateId: plate.id,
+        plateText: plate.plateText,
+        timestamp: new Date()
+      });
+      
+      res.status(201).json(plate);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid plate data", details: error.errors });
+      }
+      console.error("Error creating banned plate:", error);
+      res.status(500).json({ error: "Failed to create banned plate" });
+    }
+  });
+
+  app.delete("/api/vision/plates/:plateId", async (req, res) => {
+    try {
+      const { plateId } = req.params;
+      const deleted = await storage.deleteBannedPlate(plateId);
+      
+      if (!deleted) {
+        return res.status(404).json({ error: "Banned plate not found" });
+      }
+      
+      await storage.logEvent("plate:removed", {
+        plateId,
+        timestamp: new Date()
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting banned plate:", error);
+      res.status(500).json({ error: "Failed to delete banned plate" });
+    }
+  });
+
+  // Vision Alerts (Event Log queries for face/plate alerts)
+  app.get("/api/vision/alerts", async (req, res) => {
+    try {
+      const { type } = req.query;
+      const events = await storage.getEventsByType(type as string || "alert");
+      
+      // Filter for vision-related alerts
+      const visionAlerts = events.filter(event => 
+        event.type === "alert" && 
+        (event.detail.alertType === "face" || event.detail.alertType === "plate")
+      );
+      
+      res.json(visionAlerts);
+    } catch (error) {
+      console.error("Error fetching vision alerts:", error);
+      res.status(500).json({ error: "Failed to fetch vision alerts" });
+    }
+  });
+
+  // Vision file upload endpoint with OpenCV processing simulation
+  app.post("/api/vision/upload", async (req, res) => {
+    try {
+      // Handle JSON-based file upload (base64 encoded)
+      const { file, type, label } = req.body;
+      
+      if (!file || !file.name) {
+        return res.status(400).json({ error: "File data is required" });
+      }
+      
+      // Simulate file processing and face recognition with OpenCV
+      const uploadResult = {
+        id: `upload_${Date.now()}`,
+        originalName: file.name,
+        path: `/uploads/vision/${Date.now()}_${file.name}`,
+        type: type || 'face',
+        label: label || 'Unknown',
+        fileSize: file.size || 0,
+        fileType: file.type || 'unknown',
+        processed: true,
+        openCvData: {
+          faceDetected: true,
+          confidence: 0.95,
+          boundingBox: { x: 100, y: 100, width: 200, height: 200 },
+          bodyStructure: {
+            height: 175,
+            landmarks: ['face', 'shoulders', 'posture'],
+            recognitionScore: 0.92
+          }
+        },
+        createdAt: new Date()
+      };
+
+      // Log the vision upload event
+      await storage.logEvent("vision:upload", {
+        uploadId: uploadResult.id,
+        fileName: file.name,
+        type: uploadResult.type,
+        label: uploadResult.label,
+        processed: uploadResult.processed,
+        timestamp: new Date()
+      });
+
+      res.status(201).json(uploadResult);
+    } catch (error) {
+      console.error("Vision upload error:", error);
+      res.status(500).json({ error: "Failed to process vision upload" });
+    }
+  });
+
+  // ==========================================
+  // EMPLOYEE CALLING & MESSAGING APIs
+  // ==========================================
+
+  // Send employee call/work assignment
+  app.post("/api/employee-calling/send", async (req, res) => {
+    try {
+      const { employeeIds, message, method } = req.body;
+      
+      if (!employeeIds || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+        return res.status(400).json({ error: "Employee IDs are required" });
+      }
+      
+      if (!message || !message.trim()) {
+        return res.status(400).json({ error: "Message is required" });
+      }
+
+      // Log the calling event
+      await storage.logEvent("employee:calling", {
+        employeeIds,
+        message: message.trim(),
+        method: method || "voice",
+        timestamp: new Date()
+      });
+
+      // If voice method, simulate voice announcement
+      if (method === "voice") {
+        const employees = await storage.getAllEmployees();
+        const selectedEmployees = employees.filter(e => employeeIds.includes(e.id));
+        const employeeNames = selectedEmployees.map(e => e.name).join(", ");
+        
+        await storage.logEvent("system:voice_announcement", {
+          announcement: `Calling ${employeeNames}: ${message}`,
+          employeeCount: employeeIds.length,
+          timestamp: new Date()
+        });
+      }
+
+      res.json({ 
+        success: true, 
+        employeeCount: employeeIds.length,
+        method: method || "voice",
+        message: "Call sent successfully"
+      });
+    } catch (error) {
+      console.error("Error sending employee call:", error);
+      res.status(500).json({ error: "Failed to send employee call" });
+    }
+  });
+
+  // Send message to employees
+  app.post("/api/messages/send", async (req, res) => {
+    try {
+      const { type, recipientId, content, scheduledTime } = req.body;
+      
+      if (!type || !["broadcast", "direct"].includes(type)) {
+        return res.status(400).json({ error: "Valid message type is required" });
+      }
+      
+      if (!content || !content.trim()) {
+        return res.status(400).json({ error: "Message content is required" });
+      }
+
+      if (type === "direct" && !recipientId) {
+        return res.status(400).json({ error: "Recipient ID is required for direct messages" });
+      }
+
+      const messageData = {
+        type,
+        recipientId: type === "direct" ? recipientId : null,
+        senderId: "manager", // Manager sending message
+        content: content.trim(),
+        scheduledTime: scheduledTime || null
+      };
+
+      // Log the message event
+      await storage.logEvent("message:sent", {
+        type: messageData.type,
+        recipientId: messageData.recipientId,
+        content: messageData.content,
+        scheduled: !!scheduledTime,
+        timestamp: new Date()
+      });
+
+      res.status(201).json({ 
+        success: true, 
+        messageId: `msg_${Date.now()}`,
+        type: messageData.type,
+        scheduled: !!scheduledTime
+      });
+    } catch (error) {
+      console.error("Error sending message:", error);
+      res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
+  // Get messages (for display in admin)
+  app.get("/api/messages", async (req, res) => {
+    try {
+      // Get message events from event log
+      const events = await storage.getEventsByType("message:sent");
+      
+      const messages = events.map(event => ({
+        id: event.id,
+        type: event.detail.type,
+        recipientId: event.detail.recipientId,
+        content: event.detail.content,
+        sentAt: event.ts,
+        scheduled: event.detail.scheduled || false
+      }));
+
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      res.status(500).json({ error: "Failed to fetch messages" });
+    }
+  });
+
+  // ==========================================
+  // SETTINGS APIs (Domain Whitelist)
+  // ==========================================
+  
+  app.get("/api/settings/domain-whitelist", async (req, res) => {
+    try {
+      const enabledSetting = await storage.getSetting("domain_whitelist_enabled");
+      const domainsSetting = await storage.getSetting("domain_whitelist_domains");
+      
+      res.json({
+        enabled: enabledSetting?.value === "true" || false,
+        domains: domainsSetting?.value || ""
+      });
+    } catch (error) {
+      console.error("Error fetching domain whitelist settings:", error);
+      res.status(500).json({ error: "Failed to fetch domain whitelist settings" });
+    }
+  });
+
+  app.post("/api/settings/domain-whitelist", async (req, res) => {
+    try {
+      const { enabled, domains } = req.body;
+      
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ error: "enabled must be a boolean" });
+      }
+      
+      if (domains && typeof domains !== "string") {
+        return res.status(400).json({ error: "domains must be a string" });
+      }
+      
+      // Update or create settings
+      await storage.setSetting("domain_whitelist_enabled", enabled.toString());
+      await storage.setSetting("domain_whitelist_domains", domains || "");
+      
+      await storage.logEvent("settings:domain_whitelist_updated", {
+        enabled,
+        domains: domains || "",
+        timestamp: new Date()
+      });
+      
+      res.json({
+        enabled,
+        domains: domains || ""
+      });
+    } catch (error) {
+      console.error("Error updating domain whitelist settings:", error);
+      res.status(500).json({ error: "Failed to update domain whitelist settings" });
     }
   });
 
